@@ -24,7 +24,7 @@ jobs:
 
       - name: Verify CMakeLists.txt version matches tag
         run: |
-          CMAKE_VERSION=$(grep -m1 'VERSION' CMakeLists.txt | grep -oP '\d+\.\d+\.\d+')
+          CMAKE_VERSION=$(grep -oP 'VERSION \K\d+\.\d+\.\d+' CMakeLists.txt | head -1)
           TAG_VERSION=${{ steps.version.outputs.VERSION }}
           TAG_VERSION_STRIPPED="${TAG_VERSION#v}"
           if [[ "$CMAKE_VERSION" != "$TAG_VERSION_STRIPPED" ]]; then
