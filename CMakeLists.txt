@@ -34,6 +34,11 @@ target_link_libraries(desktop_peer PRIVATE sero)
 target_include_directories(desktop_peer PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/examples)
 target_compile_options(desktop_peer PRIVATE -Wall -Wextra -Wpedantic)
 
+add_executable(diag_scanner examples/diag_scanner.cpp)
+target_link_libraries(diag_scanner PRIVATE sero)
+target_include_directories(diag_scanner PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/examples)
+target_compile_options(diag_scanner PRIVATE -Wall -Wextra -Wpedantic)
+
 # ---------- code coverage ----------------------------------------
 option(CODE_COVERAGE "Enable gcov/lcov code coverage" OFF)
 

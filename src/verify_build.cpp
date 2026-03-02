@@ -62,6 +62,13 @@ int main() {
     rt.register_event(0x0100, 0x8001);
     rt.offer_service(0x0100, 5, 0);
 
+    // Diagnostics service
+    rt.enable_diagnostics(0);
+    rt.report_dtc(0x0010, sero::DtcSeverity::Error, 100);
+    rt.report_dtc(0x0020, sero::DtcSeverity::Warning, 200);
+    rt.clear_dtc(0x0010);
+    rt.clear_all_dtcs();
+
     // Run one process cycle
     rt.process(1000);
 
