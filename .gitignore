@@ -67,3 +67,7 @@ vcpkg_installed/
 # test output & cache
 Testing/
 .cache/
+
+# CodeQL analysis artifacts
+_codeql_build_dir/
+_codeql_detected_source_root

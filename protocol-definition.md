@@ -479,6 +479,16 @@ Design goals:
 - **Discoverable**: a desktop scanner calls `find_service(0xFFFE, ...)` to discover all
   diagnostics-enabled devices on the network.
 
+> **Security note**: The diagnostics service exposes device health data and provides the
+> `DIAG_CLEAR_DTCS` method that can alter device state. It is strongly recommended to enable
+> the service with `auth_required = true` so that only authenticated peers can query or modify
+> diagnostic state:
+> ```cpp
+> rt.enable_diagnostics(now_ms, /*auth_required=*/true);
+> ```
+> When `auth_required = true` all requests must carry a valid HMAC, preventing unauthorized
+> peers from reading counters, enumerating services, or clearing DTCs.
+
 ### 10.2 DTC Model
 
 A **Diagnostic Trouble Code (DTC)** records an application-defined error on the device.
@@ -487,14 +497,17 @@ A **Diagnostic Trouble Code (DTC)** records an application-defined error on the 
 |-------|------|-------------|
 | `code` | `uint16_t` | Application-defined error code. |
 | `severity` | `DtcSeverity` | `Info(0)`, `Warning(1)`, `Error(2)`, `Fatal(3)`. |
-| `status` | `uint8_t` | `1` = active, `0` = cleared. |
+| `status` | `uint8_t` | Always `1` in `DIAG_GET_DTCS` responses. Cleared DTCs are removed from the store and are not reported; this field is reserved for future use. |
 | `occurrence_count` | `uint32_t` | How many times this code was reported. |
 | `first_seen_ms` | `uint32_t` | Uptime (ms) when first reported. |
 | `last_seen_ms` | `uint32_t` | Uptime (ms) of most recent report. |
 
 DTCs are stored in a fixed-size table of `MaxDtcs` slots. If the table is full, new codes
 are silently dropped (→ `dropped_messages` counter). Re-reporting an existing code
-increments `occurrence_count` and updates `last_seen_ms`.
+increments `occurrence_count` and updates `last_seen_ms`. When a DTC is cleared via
+`clear_dtc()` or `DIAG_CLEAR_DTCS`, its slot is freed immediately; the entry will not appear
+in subsequent `DIAG_GET_DTCS` responses. Setting `MaxDtcs = 0` disables DTC storage
+entirely (all `report_dtc()` calls return false without incrementing any counter).
 
 Application API:
 ```cpp
@@ -510,7 +523,7 @@ All methods are under **Service ID `0xFFFE`** (reserved, like `0xFFFF` for SD).
 | Method | ID | Request Payload | Response Payload |
 |--------|----|-----------------|------------------|
 | `DIAG_GET_DTCS` | `0x0001` | (empty) | `[2B count][N × 16B DTC entries]` |
-| `DIAG_CLEAR_DTCS` | `0x0002` | `[2B code]` (`0xFFFF` = clear all) | (empty) |
+| `DIAG_CLEAR_DTCS` | `0x0002` | `[2B code]` (`0xFFFF` = clear all) | (empty, `E_OK`) or (`E_NOT_OK` if specific code not found) |
 | `DIAG_GET_COUNTERS` | `0x0003` | (empty) | `[9 × 4B counters]` = 36 bytes |
 | `DIAG_GET_SERVICE_LIST` | `0x0004` | (empty) | `[2B count][N × 6B service entries]` |
 | `DIAG_GET_DEVICE_INFO` | `0x0005` | (empty) | `[2B client_id][4B uptime_ms][1B version][1B reserved]` = 8 bytes |
@@ -547,6 +560,7 @@ enum class DtcSeverity : uint8_t {
 2. On `on_service_found` callback, scanner issues `DIAG_GET_DEVICE_INFO` + `DIAG_GET_SERVICE_LIST` + `DIAG_GET_DTCS` + `DIAG_GET_COUNTERS` requests.
 3. Responses are parsed and displayed in a dashboard.
 4. To clear DTCs: scanner sends `DIAG_CLEAR_DTCS` with the target code (or `0xFFFF` for all).
+   - Returns `E_NOT_OK` when the specified code is not found; `E_OK` on success or when clearing all.
 
 ---
 

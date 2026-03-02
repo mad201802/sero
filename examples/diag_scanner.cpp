@@ -77,11 +77,11 @@ struct DiscoveredDevice {
 
 static std::vector<DiscoveredDevice> devices;
 static Runtime* g_rt = nullptr;
-static volatile bool running = true;
+static volatile std::sig_atomic_t running = 1;
 
 // ─── Signal Handler ─────────────────────────────────────────────
 
-static void signal_handler(int) { running = false; }
+static void signal_handler(int) { running = 0; }
 
 // ─── Helpers ────────────────────────────────────────────────────
 

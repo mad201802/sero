@@ -274,23 +274,34 @@ public:
     /// Enable the built-in diagnostics service (0xFFFE).
     /// Registers the service with SD auto-offer so desktop scanners
     /// can discover and query this device.
-    bool enable_diagnostics(uint32_t now_ms) {
+    /// @param auth_required  When true, requests to the diagnostics service
+    ///                       must carry a valid HMAC (recommended for
+    ///                       state-changing methods like DIAG_CLEAR_DTCS).
+    bool enable_diagnostics(uint32_t now_ms, bool auth_required = false) {
         if (diag_enabled_) return true; // idempotent
         diag_service_.init(&dtc_store_, &diag_, &dispatcher_,
                            client_id_, &uptime_ms_);
-        if (!register_service(DIAG_SERVICE_ID, diag_service_, 1, 0, false))
+        if (!register_service(DIAG_SERVICE_ID, diag_service_, 1, 0,
+                              auth_required))
             return false;
-        if (!offer_service(DIAG_SERVICE_ID, Config::OfferTtlSeconds, now_ms))
+        if (!offer_service(DIAG_SERVICE_ID, Config::OfferTtlSeconds, now_ms)) {
+            // Roll back registration on failure to keep state consistent.
+            unregister_service(DIAG_SERVICE_ID);
             return false;
+        }
         diag_enabled_ = true;
         return true;
     }
 
     /// Report a DTC (application-level error code).
     bool report_dtc(uint16_t code, DtcSeverity severity, uint32_t now_ms) {
-        bool ok = dtc_store_.report(code, severity, now_ms);
-        if (!ok) diag_.increment(DiagnosticCounter::DroppedMessages);
-        return ok;
+        if constexpr (Config::MaxDtcs == 0) {
+            return false;
+        } else {
+            bool ok = dtc_store_.report(code, severity, now_ms);
+            if (!ok) diag_.increment(DiagnosticCounter::DroppedMessages);
+            return ok;
+        }
     }
 
     /// Clear a single DTC by code.
