@@ -87,7 +87,9 @@ public:
         }
     }
 
-    bool impl_is_ready() const { return dtcs_ != nullptr; }
+    bool impl_is_ready() const {
+        return dtcs_ != nullptr && counters_ != nullptr && dispatcher_ != nullptr;
+    }
 
 private:
     DtcStore<Config>*              dtcs_       = nullptr;
@@ -101,13 +103,19 @@ private:
     ReturnCode handle_get_dtcs(uint8_t* response,
                                std::size_t& response_length) const
     {
+        if (response_length < 2) {
+            response_length = 0;
+            return ReturnCode::E_NOT_OK;
+        }
+
+        const std::size_t capacity = response_length;
         std::size_t offset = 0;
         // Reserve 2 bytes for count (filled after iteration)
         offset += 2;
 
         uint16_t n = 0;
         dtcs_->for_each([&](const Dtc& d) {
-            if (offset + 16 > Config::MaxPayloadSize) return;
+            if (offset + 16 > capacity) return;
             MessageHeader::write_u16(response + offset, d.code);          offset += 2;
             response[offset++] = d.severity;
             response[offset++] = d.active ? uint8_t(1) : uint8_t(0);
@@ -137,7 +145,10 @@ private:
         if (code == 0xFFFF) {
             dtcs_->clear_all();
         } else {
-            dtcs_->clear(code);
+            if (!dtcs_->clear(code)) {
+                response_length = 0;
+                return ReturnCode::E_NOT_OK;
+            }
         }
         response_length = 0;
         return ReturnCode::E_OK;
@@ -149,12 +160,17 @@ private:
                                    std::size_t& response_length) const
     {
         constexpr std::size_t N = static_cast<std::size_t>(DiagnosticCounter::_Count);
+        constexpr std::size_t RequiredSize = N * 4;
+        if (response_length < RequiredSize) {
+            response_length = 0;
+            return ReturnCode::E_NOT_OK;
+        }
         for (std::size_t i = 0; i < N; ++i) {
             MessageHeader::write_u32(
                 response + i * 4,
                 counters_->get(static_cast<DiagnosticCounter>(i)));
         }
-        response_length = N * 4;  // 36 bytes
+        response_length = RequiredSize;
         return ReturnCode::E_OK;
     }
 
@@ -163,10 +179,16 @@ private:
     ReturnCode handle_get_service_list(uint8_t* response,
                                        std::size_t& response_length) const
     {
+        if (response_length < 2) {
+            response_length = 0;
+            return ReturnCode::E_NOT_OK;
+        }
+
+        const std::size_t capacity = response_length;
         std::size_t offset = 2;  // reserve 2 bytes for count
         uint16_t n = 0;
         dispatcher_->for_each([&](const ServiceEntry& se) {
-            if (offset + 6 > Config::MaxPayloadSize) return;
+            if (offset + 6 > capacity) return;
             MessageHeader::write_u16(response + offset, se.service_id);  offset += 2;
             response[offset++] = se.major_version;
             response[offset++] = se.minor_version;
@@ -184,6 +206,10 @@ private:
     ReturnCode handle_get_device_info(uint8_t* response,
                                       std::size_t& response_length) const
     {
+        if (response_length < 8) {
+            response_length = 0;
+            return ReturnCode::E_NOT_OK;
+        }
         MessageHeader::write_u16(response,     client_id_);
         MessageHeader::write_u32(response + 2, uptime_ptr_ ? *uptime_ptr_ : 0);
         response[6] = PROTOCOL_VERSION;
