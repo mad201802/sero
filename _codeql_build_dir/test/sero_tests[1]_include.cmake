@@ -1,5 +1,0 @@
-if(EXISTS "/home/runner/work/sero/sero/_codeql_build_dir/test/sero_tests[1]_tests.cmake")
-  include("/home/runner/work/sero/sero/_codeql_build_dir/test/sero_tests[1]_tests.cmake")
-else()
-  add_test(sero_tests_NOT_BUILT sero_tests_NOT_BUILT)
-endif()
