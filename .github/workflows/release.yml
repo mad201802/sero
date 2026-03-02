@@ -1,0 +1,96 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history for changelog generation
+
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify CMakeLists.txt version matches tag
+        run: |
+          CMAKE_VERSION=$(grep -m1 'VERSION' CMakeLists.txt | grep -oP '\d+\.\d+\.\d+')
+          TAG_VERSION=${{ steps.version.outputs.VERSION }}
+          TAG_VERSION_STRIPPED="${TAG_VERSION#v}"
+          if [[ "$CMAKE_VERSION" != "$TAG_VERSION_STRIPPED" ]]; then
+            echo "::error::CMakeLists.txt version ($CMAKE_VERSION) does not match tag ($TAG_VERSION_STRIPPED)"
+            exit 1
+          fi
+
+      - name: Build release (smoke-test)
+        run: |
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTING=ON
+          cmake --build build --parallel $(nproc)
+
+      - name: Run tests
+        working-directory: build
+        run: ctest --output-on-failure --parallel $(nproc)
+
+      - name: Create single-header archive
+        run: |
+          mkdir -p dist
+          cp -r include dist/
+          cp LICENSE README.md dist/
+          tar -czf sero-${{ steps.version.outputs.VERSION }}.tar.gz -C dist .
+          zip -r  sero-${{ steps.version.outputs.VERSION }}.zip dist/
+
+      - name: Generate changelog since last tag
+        id: changelog
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [[ -n "$PREV_TAG" ]]; then
+            RANGE="${PREV_TAG}..HEAD"
+          else
+            RANGE="HEAD"
+          fi
+          NOTES=$(git log "$RANGE" --pretty=format:"- %s (%h)" --no-merges)
+          # Store multi-line output safely
+          {
+            echo 'NOTES<<EOF'
+            echo "$NOTES"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.VERSION }}
+          name: "Sero ${{ steps.version.outputs.VERSION }}"
+          body: |
+            ## What's Changed
+            ${{ steps.changelog.outputs.NOTES }}
+
+            ---
+            **Full Diff**: https://github.com/${{ github.repository }}/compare/${{ steps.version.outputs.VERSION }}
+
+            ### Installation
+            Download the archive below and add the `include/` directory to your project, or use CMake FetchContent:
+            ```cmake
+            FetchContent_Declare(sero
+                GIT_REPOSITORY https://github.com/${{ github.repository }}.git
+                GIT_TAG        ${{ steps.version.outputs.VERSION }}
+            )
+            FetchContent_MakeAvailable(sero)
+            ```
+          files: |
+            sero-${{ steps.version.outputs.VERSION }}.tar.gz
+            sero-${{ steps.version.outputs.VERSION }}.zip
+          draft: false
+          prerelease: ${{ contains(steps.version.outputs.VERSION, '-') }}

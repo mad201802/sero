@@ -1,0 +1,80 @@
+name: Coverage
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: coverage-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  coverage:
+    name: Code Coverage (GCC + lcov)
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            gcc g++ lcov
+
+      - name: Configure with coverage
+        run: |
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DBUILD_TESTING=ON \
+            -DCODE_COVERAGE=ON
+
+      - name: Build
+        run: cmake --build build --parallel $(nproc)
+
+      - name: Run tests
+        working-directory: build
+        run: ctest --output-on-failure --parallel $(nproc)
+
+      - name: Capture coverage data
+        run: |
+          lcov --capture \
+               --directory build \
+               --output-file build/coverage.info \
+               --rc branch_coverage=1 \
+               --ignore-errors mismatch,source
+
+      - name: Filter – keep only project headers
+        run: |
+          lcov --extract build/coverage.info \
+               "${GITHUB_WORKSPACE}/include/sero/*" \
+               "${GITHUB_WORKSPACE}/include/sero/core/*" \
+               "${GITHUB_WORKSPACE}/include/sero/security/*" \
+               "${GITHUB_WORKSPACE}/include/sero/service/*" \
+               --output-file build/coverage_filtered.info \
+               --rc branch_coverage=1
+
+      - name: Generate HTML report
+        run: |
+          genhtml build/coverage_filtered.info \
+                  --output-directory build/coverage_html \
+                  --branch-coverage \
+                  --title "Sero Coverage"
+
+      - name: Upload HTML report as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: build/coverage_html/
+          retention-days: 14
+
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: build/coverage_filtered.info
+          flags: unittests
+          fail_ci_if_error: false
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}

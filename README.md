@@ -2,6 +2,9 @@
 
 **Embedded-first, realtime-ready service-oriented communication for C++17**
 
+[![CI](https://github.com/mad201802/sero/actions/workflows/ci.yml/badge.svg)](https://github.com/mad201802/sero/actions/workflows/ci.yml)
+[![Coverage](https://github.com/mad201802/sero/actions/workflows/coverage.yml/badge.svg)](https://github.com/mad201802/sero/actions/workflows/coverage.yml)
+[![Static Analysis](https://github.com/mad201802/sero/actions/workflows/static-analysis.yml/badge.svg)](https://github.com/mad201802/sero/actions/workflows/static-analysis.yml)
 [![C++17](https://img.shields.io/badge/C%2B%2B-17-blue.svg)](https://en.cppreference.com/w/cpp/17)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![CMake](https://img.shields.io/badge/build-CMake%203.14+-064F8C.svg)](https://cmake.org/)
