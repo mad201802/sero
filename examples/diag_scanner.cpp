@@ -409,7 +409,7 @@ int main(int argc, char* argv[]) {
             // Handle --clear command (one-shot after first scan)
             if (do_clear) {
                 // We need at least one device discovered
-                for (auto& dev : devices) {
+                for (const auto& dev : devices) {
                     if (dev.found && dev.info.info_received &&
                         dev.info.client_id == clear_target_client) {
                         uint8_t payload[2];

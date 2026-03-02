@@ -98,11 +98,15 @@ int main() {
     uint32_t now = example::now_ms();
     rt.offer_service(SERVICE_ID, /*ttl_seconds=*/30, now);
 
+    rt.enable_diagnostics(now);
+
     std::printf("[server] Calculator service 0x%04X offered on 127.0.0.1:%u\n",
                 SERVICE_ID, SERVER_PORT);
 
     uint32_t counter = 0;
     uint32_t last_event_ms = now;
+
+    rt.report_dtc(0x0010, sero::DtcSeverity::Error, now);
 
     // ── Run loop ────────────────────────────────────────────────
     for (;;) {
