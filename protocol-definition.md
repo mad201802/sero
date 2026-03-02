@@ -436,6 +436,7 @@ All resource limits are `constexpr` or template parameters. No dynamic allocatio
 | `MaxReceiveQueueSize` | `size_t` | `16` | Transport receive ring buffer capacity. |
 | `MaxTrackedPeers` | `size_t` | `32` | Max peers tracked for sequence validation. |
 | `HmacKeySize` | `size_t` | `32` | Pre-shared HMAC key size (bytes). |
+| `MaxDtcs` | `size_t` | `32` | Max stored Diagnostic Trouble Codes per device. 0 disables DTC storage. |
 
 ---
 
@@ -463,9 +464,95 @@ Application MAY register a diagnostic callback invoked on each discard. Paramete
 
 ---
 
-## 10. Implementation Architecture (C++17)
+## 10. Diagnostics Service (OBD-II Style Remote Monitoring)
 
-### 10.1 CRTP Interfaces
+### 10.1 Overview
+
+Sero provides an optional built-in **Diagnostics Service** (Service ID `0xFFFE`) that lets
+remote peers query a device's health — similar to connecting an OBD-II scanner to a car's
+ECU. The service is opt-in: call `Runtime::enable_diagnostics(now_ms)` to register and
+auto-offer it via Service Discovery.
+
+Design goals:
+- **Lightweight**: fixed-size DTC table (`MaxDtcs`, default 32), no heap, no background threads.
+- **Non-invasive**: all queries are poll-based requests; the device does no extra work between queries.
+- **Discoverable**: a desktop scanner calls `find_service(0xFFFE, ...)` to discover all
+  diagnostics-enabled devices on the network.
+
+### 10.2 DTC Model
+
+A **Diagnostic Trouble Code (DTC)** records an application-defined error on the device.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `code` | `uint16_t` | Application-defined error code. |
+| `severity` | `DtcSeverity` | `Info(0)`, `Warning(1)`, `Error(2)`, `Fatal(3)`. |
+| `status` | `uint8_t` | `1` = active, `0` = cleared. |
+| `occurrence_count` | `uint32_t` | How many times this code was reported. |
+| `first_seen_ms` | `uint32_t` | Uptime (ms) when first reported. |
+| `last_seen_ms` | `uint32_t` | Uptime (ms) of most recent report. |
+
+DTCs are stored in a fixed-size table of `MaxDtcs` slots. If the table is full, new codes
+are silently dropped (→ `dropped_messages` counter). Re-reporting an existing code
+increments `occurrence_count` and updates `last_seen_ms`.
+
+Application API:
+```cpp
+rt.report_dtc(0x0010, DtcSeverity::Error, now_ms);
+rt.clear_dtc(0x0010);
+rt.clear_all_dtcs();
+```
+
+### 10.3 Diagnostics Method IDs
+
+All methods are under **Service ID `0xFFFE`** (reserved, like `0xFFFF` for SD).
+
+| Method | ID | Request Payload | Response Payload |
+|--------|----|-----------------|------------------|
+| `DIAG_GET_DTCS` | `0x0001` | (empty) | `[2B count][N × 16B DTC entries]` |
+| `DIAG_CLEAR_DTCS` | `0x0002` | `[2B code]` (`0xFFFF` = clear all) | (empty) |
+| `DIAG_GET_COUNTERS` | `0x0003` | (empty) | `[9 × 4B counters]` = 36 bytes |
+| `DIAG_GET_SERVICE_LIST` | `0x0004` | (empty) | `[2B count][N × 6B service entries]` |
+| `DIAG_GET_DEVICE_INFO` | `0x0005` | (empty) | `[2B client_id][4B uptime_ms][1B version][1B reserved]` = 8 bytes |
+
+### 10.4 Wire Payload Formats (Big-Endian)
+
+**DTC entry (16 bytes):**
+```
+[code (2B)] [severity (1B)] [status (1B)] [occ_count (4B)] [first_seen (4B)] [last_seen (4B)]
+```
+
+**Service list entry (6 bytes):**
+```
+[service_id (2B)] [major (1B)] [minor (1B)] [auth_required (1B)] [ready (1B)]
+```
+
+**Counter response:**  9 × `uint32_t` in `DiagnosticCounter` enum order
+(`CrcErrors, VersionMismatches, ..., DroppedMessages`).
+
+### 10.5 Severity Enum
+
+```cpp
+enum class DtcSeverity : uint8_t {
+    Info    = 0,
+    Warning = 1,
+    Error   = 2,
+    Fatal   = 3,
+};
+```
+
+### 10.6 Scanner Interaction
+
+1. Scanner calls `find_service(0xFFFE, 1, now)` → SD discovers all devices offering the diagnostics service.
+2. On `on_service_found` callback, scanner issues `DIAG_GET_DEVICE_INFO` + `DIAG_GET_SERVICE_LIST` + `DIAG_GET_DTCS` + `DIAG_GET_COUNTERS` requests.
+3. Responses are parsed and displayed in a dashboard.
+4. To clear DTCs: scanner sends `DIAG_CLEAR_DTCS` with the target code (or `0xFFFF` for all).
+
+---
+
+## 11. Implementation Architecture (C++17)
+
+### 11.1 CRTP Interfaces
 
 ```cpp
 template <typename Impl>
@@ -495,7 +582,7 @@ public:
 };
 ```
 
-### 10.2 Core Components
+### 11.2 Core Components
 
 | Component | Responsibility |
 |-----------|---------------|
@@ -509,7 +596,7 @@ public:
 | `DiagnosticCounters` | Counter storage + application callback dispatch. |
 | `Runtime` | Top-level coordinator (see §10.3). |
 
-### 10.3 `Runtime::process()` Cycle
+### 11.3 `Runtime::process()` Cycle
 
 Called by user (main loop or RTOS task). Run-to-completion, non-blocking.
 
@@ -524,7 +611,7 @@ Called by user (main loop or RTOS task). Run-to-completion, non-blocking.
 
 ---
 
-## 11. Future Extensions (Out of Scope)
+## 12. Future Extensions (Out of Scope)
 
 - Payload segmentation / reassembly
 - Event groups

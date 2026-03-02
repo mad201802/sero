@@ -14,12 +14,14 @@
 #include "sero/security/e2e_protection.hpp"
 #include "sero/security/message_authenticator.hpp"
 #include "sero/core/diagnostic_counters.hpp"
+#include "sero/core/dtc_store.hpp"
 #include "sero/service/service_discovery.hpp"
 #include "sero/service/method_dispatcher.hpp"
 #include "sero/service/event_manager.hpp"
 #include "sero/service/request_tracker.hpp"
 #include "sero/service/service.hpp"
 #include "sero/service/event_handler.hpp"
+#include "sero/service/diagnostics_service.hpp"
 
 namespace sero {
 
@@ -49,6 +51,13 @@ public:
     // ── Main process cycle (§10.3) ──────────────────────────────
 
     void process(uint32_t now_ms) {
+        // Track uptime (first call establishes epoch)
+        if (!uptime_started_) {
+            uptime_started_ = true;
+            uptime_epoch_ms_ = now_ms;
+        }
+        uptime_ms_ = now_ms - uptime_epoch_ms_;
+
         // 1. Drain transport
         Addr source{};
         const uint8_t* data = nullptr;
@@ -260,6 +269,39 @@ public:
 
     const DiagnosticCounters& diagnostics() const { return diag_; }
 
+    // ── Diagnostics Service (§10) ───────────────────────────────
+
+    /// Enable the built-in diagnostics service (0xFFFE).
+    /// Registers the service with SD auto-offer so desktop scanners
+    /// can discover and query this device.
+    bool enable_diagnostics(uint32_t now_ms) {
+        if (diag_enabled_) return true; // idempotent
+        diag_service_.init(&dtc_store_, &diag_, &dispatcher_,
+                           client_id_, &uptime_ms_);
+        if (!register_service(DIAG_SERVICE_ID, diag_service_, 1, 0, false))
+            return false;
+        if (!offer_service(DIAG_SERVICE_ID, Config::OfferTtlSeconds, now_ms))
+            return false;
+        diag_enabled_ = true;
+        return true;
+    }
+
+    /// Report a DTC (application-level error code).
+    bool report_dtc(uint16_t code, DtcSeverity severity, uint32_t now_ms) {
+        bool ok = dtc_store_.report(code, severity, now_ms);
+        if (!ok) diag_.increment(DiagnosticCounter::DroppedMessages);
+        return ok;
+    }
+
+    /// Clear a single DTC by code.
+    bool clear_dtc(uint16_t code) { return dtc_store_.clear(code); }
+
+    /// Clear all DTCs.
+    void clear_all_dtcs() { dtc_store_.clear_all(); }
+
+    /// Read-only access to the DTC store.
+    const DtcStore<Config>& dtc_store() const { return dtc_store_; }
+
     // ── Component accessors (for advanced use) ──────────────────
 
     MethodDispatcher<Config>& dispatcher() { return dispatcher_; }
@@ -276,6 +318,12 @@ private:
     uint8_t                    sd_seq_  = 0;  ///< Separate sequence counter for SD-only messages.
     MessageAuthenticator<Config> authenticator_;
     DiagnosticCounters         diag_;
+    DtcStore<Config>           dtc_store_;
+    DiagnosticsService<Config> diag_service_;
+    bool                       diag_enabled_ = false;
+    uint32_t                   uptime_ms_     = 0;
+    uint32_t                   uptime_epoch_ms_ = 0;
+    bool                       uptime_started_ = false;
     ServiceDiscovery<Config>   sd_;
     MethodDispatcher<Config>   dispatcher_;
     EventManager<Config>       event_manager_;

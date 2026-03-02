@@ -6,6 +6,8 @@ set(TEST_SOURCES
     test_message_header.cpp
     test_e2e_protection.cpp
     test_diagnostic_counters.cpp
+    test_dtc_store.cpp
+    test_diagnostics_service.cpp
     test_method_dispatcher.cpp
     test_event_manager.cpp
     test_request_tracker.cpp

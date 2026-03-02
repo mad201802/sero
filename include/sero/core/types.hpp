@@ -12,6 +12,7 @@ namespace sero {
 
 static constexpr uint8_t  PROTOCOL_VERSION   = 0x01;
 static constexpr uint16_t SD_SERVICE_ID      = 0xFFFF;
+static constexpr uint16_t DIAG_SERVICE_ID    = 0xFFFE;
 static constexpr uint16_t CLIENT_ID_PROVIDER = 0x0000;
 static constexpr uint32_t REQUEST_ID_NONE    = 0x00000000;
 static constexpr std::size_t HEADER_SIZE     = 20;
@@ -78,6 +79,25 @@ enum class DiagnosticCounter : uint8_t {
     UnknownMessageTypes  = 7,
     DroppedMessages      = 8,
     _Count               = 9,
+};
+
+// ──────────────────────── DTC Severity (§10.1) ─────────────────────
+
+enum class DtcSeverity : uint8_t {
+    Info    = 0,
+    Warning = 1,
+    Error   = 2,
+    Fatal   = 3,
+};
+
+// ──────────────────────── Diagnostics Method IDs (§10.2) ───────────
+
+enum class DiagMethod : uint16_t {
+    DIAG_GET_DTCS        = 0x0001,
+    DIAG_CLEAR_DTCS      = 0x0002,
+    DIAG_GET_COUNTERS    = 0x0003,
+    DIAG_GET_SERVICE_LIST = 0x0004,
+    DIAG_GET_DEVICE_INFO = 0x0005,
 };
 
 // ──────────────────────── Flags ────────────────────────────────────

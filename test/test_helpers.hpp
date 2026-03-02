@@ -35,6 +35,7 @@ struct SmallConfig {
     static constexpr std::size_t MaxReceiveQueueSize       = 8;
     static constexpr std::size_t MaxTrackedPeers           = 4;
     static constexpr std::size_t HmacKeySize               = 32;
+    static constexpr std::size_t MaxDtcs                    = 4;
 };
 
 using Addr = sero::Address<SmallConfig>;

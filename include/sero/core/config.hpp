@@ -3,6 +3,9 @@
 /// Compile-time configuration for Sero (§8).
 /// Users provide their own struct with the same static constexpr members
 /// and pass it as a template parameter to Runtime.
+/// MaxDtcs controls the DTC table size for the built-in diagnostics service.
+/// Set to 0 to disable DTC storage (diagnostics service still works but
+/// GET_DTCS returns empty).
 
 #include <cstddef>
 #include <cstdint>
@@ -29,6 +32,7 @@ struct DefaultConfig {
     static constexpr std::size_t MaxReceiveQueueSize       = 16;
     static constexpr std::size_t MaxTrackedPeers           = 32;
     static constexpr std::size_t HmacKeySize               = 32;
+    static constexpr std::size_t MaxDtcs                    = 32;
 };
 
 } // namespace sero
