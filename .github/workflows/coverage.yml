@@ -54,7 +54,8 @@ jobs:
                "${GITHUB_WORKSPACE}/include/sero/security/*" \
                "${GITHUB_WORKSPACE}/include/sero/service/*" \
                --output-file build/coverage_filtered.info \
-               --rc branch_coverage=1
+               --rc branch_coverage=1 \
+               --ignore-errors unused
 
       - name: Generate HTML report
         run: |
