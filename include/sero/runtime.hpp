@@ -174,6 +174,37 @@ public:
         return rid;
     }
 
+    /// Send a REQUEST to an explicit target address, bypassing SD lookup.
+    /// Use this when you manage multiple providers of the same service_id
+    /// (e.g. a diagnostic scanner querying each discovered device directly).
+    std::optional<uint32_t> request(const Addr& target,
+                                    uint16_t service_id,
+                                    uint16_t method_id,
+                                    const uint8_t* payload,
+                                    std::size_t payload_length,
+                                    RequestCallback callback,
+                                    void* user_ctx,
+                                    uint32_t timeout_ms,
+                                    uint32_t now_ms)
+    {
+        auto rid = request_tracker_.allocate(service_id, method_id,
+                                             timeout_ms, now_ms,
+                                             callback, user_ctx);
+        if (!rid) return std::nullopt; // table full
+
+        bool auth = should_auth_outgoing(target);
+        MessageHeader hdr = make_request_header(service_id, method_id,
+                                                 payload_length, *rid, auth);
+        hdr.sequence_counter = e2e_.next_sequence();
+        std::size_t total = build_message(hdr, payload, payload_length, auth, target);
+        if (!transport_.send(target, tx_buffer_, total)) {
+            request_tracker_.complete(*rid, ReturnCode::E_NOT_OK, nullptr, 0);
+            diag_.increment(DiagnosticCounter::DroppedMessages);
+            return std::nullopt;
+        }
+        return rid;
+    }
+
     /// Fire-and-forget REQUEST_NO_RETURN (§5.2).
     bool fire_and_forget(uint16_t service_id, uint16_t method_id,
                          const uint8_t* payload, std::size_t payload_length)

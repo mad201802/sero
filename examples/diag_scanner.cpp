@@ -78,6 +78,8 @@ struct DiscoveredDevice {
 static std::vector<DiscoveredDevice> devices;
 static Runtime* g_rt = nullptr;
 static volatile std::sig_atomic_t running = 1;
+static uint32_t g_last_scan_ms      = 0;   // last time queries were issued
+static bool     g_dashboard_printed = false;
 
 // ─── Signal Handler ─────────────────────────────────────────────
 
@@ -202,7 +204,33 @@ static void on_clear_response(sero::ReturnCode rc,
     }
 }
 
-// ─── SD Callback ────────────────────────────────────────────────
+// ─── Query a device ─────────────────────────────────────────────
+
+static void query_device(DiscoveredDevice& dev, uint32_t now_ms) {
+    using DM = sero::DiagMethod;
+
+    // Use the explicit-address overload so each device gets its own requests,
+    // regardless of which provider the SD layer currently tracks.
+    g_rt->request(dev.addr, sero::DIAG_SERVICE_ID,
+                  static_cast<uint16_t>(DM::DIAG_GET_DEVICE_INFO),
+                  nullptr, 0, on_device_info, &dev, REQUEST_TIMEOUT_MS, now_ms);
+
+    g_rt->request(dev.addr, sero::DIAG_SERVICE_ID,
+                  static_cast<uint16_t>(DM::DIAG_GET_SERVICE_LIST),
+                  nullptr, 0, on_service_list, &dev, REQUEST_TIMEOUT_MS, now_ms);
+
+    g_rt->request(dev.addr, sero::DIAG_SERVICE_ID,
+                  static_cast<uint16_t>(DM::DIAG_GET_DTCS),
+                  nullptr, 0, on_dtcs, &dev, REQUEST_TIMEOUT_MS, now_ms);
+
+    g_rt->request(dev.addr, sero::DIAG_SERVICE_ID,
+                  static_cast<uint16_t>(DM::DIAG_GET_COUNTERS),
+                  nullptr, 0, on_counters, &dev, REQUEST_TIMEOUT_MS, now_ms);
+
+    dev.last_query_ms = now_ms;
+}
+
+// ─── SD Callbacks ────────────────────────────────────────────────
 
 static void on_diag_service_found(uint16_t sid, const Addr& addr, void* /*ctx*/) {
     if (sid != sero::DIAG_SERVICE_ID) return;
@@ -218,39 +246,23 @@ static void on_diag_service_found(uint16_t sid, const Addr& addr, void* /*ctx*/)
     std::printf("[scanner] Discovered diagnostics device at %u.%u.%u.%u:%u\n",
                 addr[0], addr[1], addr[2], addr[3],
                 unsigned((addr[4] << 8) | addr[5]));
+
+    // Query immediately so data is available within ~500 ms of discovery
+    // instead of waiting up to SCAN_INTERVAL_MS for the next periodic cycle.
+    // Also arm the dashboard window so it prints after responses arrive.
+    uint32_t now = example::now_ms();
+    query_device(devices.back(), now);
+    g_last_scan_ms      = now;
+    g_dashboard_printed = false;
 }
 
 static void on_diag_service_lost(uint16_t sid, void* /*ctx*/) {
     if (sid != sero::DIAG_SERVICE_ID) return;
-    std::printf("[scanner] Diagnostics service 0x%04X lost\n", sid);
-    // Mark devices as not found (they'll be rediscovered if they come back)
-    for (auto& dev : devices) {
-        dev.found = false;
-    }
-}
-
-// ─── Query a device ─────────────────────────────────────────────
-
-static void query_device(DiscoveredDevice& dev, uint32_t now_ms) {
-    using DM = sero::DiagMethod;
-
-    g_rt->request(sero::DIAG_SERVICE_ID,
-                  static_cast<uint16_t>(DM::DIAG_GET_DEVICE_INFO),
-                  nullptr, 0, on_device_info, &dev, REQUEST_TIMEOUT_MS, now_ms);
-
-    g_rt->request(sero::DIAG_SERVICE_ID,
-                  static_cast<uint16_t>(DM::DIAG_GET_SERVICE_LIST),
-                  nullptr, 0, on_service_list, &dev, REQUEST_TIMEOUT_MS, now_ms);
-
-    g_rt->request(sero::DIAG_SERVICE_ID,
-                  static_cast<uint16_t>(DM::DIAG_GET_DTCS),
-                  nullptr, 0, on_dtcs, &dev, REQUEST_TIMEOUT_MS, now_ms);
-
-    g_rt->request(sero::DIAG_SERVICE_ID,
-                  static_cast<uint16_t>(DM::DIAG_GET_COUNTERS),
-                  nullptr, 0, on_counters, &dev, REQUEST_TIMEOUT_MS, now_ms);
-
-    dev.last_query_ms = now_ms;
+    // The SD layer tracks only one provider slot per service_id — this fires
+    // when that slot's TTL expires, not when an individual device goes offline.
+    // Silently re-issue find_service so the slot is refreshed on the next
+    // offer from any device, keeping discovery live for newly appearing devices.
+    g_rt->find_service(sero::DIAG_SERVICE_ID, 1, example::now_ms());
 }
 
 // ─── Print dashboard ────────────────────────────────────────────
@@ -389,16 +401,15 @@ int main(int argc, char* argv[]) {
     std::printf("[scanner] Searching for diagnostics services (0x%04X)...\n\n",
                 sero::DIAG_SERVICE_ID);
 
-    uint32_t last_scan_ms = 0;
-
     // ── Main loop ───────────────────────────────────────────────
     while (running) {
         now = example::now_ms();
         rt.process(now);
 
         // Query discovered devices periodically
-        if (now - last_scan_ms >= SCAN_INTERVAL_MS) {
-            last_scan_ms = now;
+        if (now - g_last_scan_ms >= SCAN_INTERVAL_MS) {
+            g_last_scan_ms      = now;
+            g_dashboard_printed = false;
 
             for (auto& dev : devices) {
                 if (dev.found) {
@@ -414,7 +425,7 @@ int main(int argc, char* argv[]) {
                         dev.info.client_id == clear_target_client) {
                         uint8_t payload[2];
                         sero::MessageHeader::write_u16(payload, clear_dtc_code);
-                        rt.request(sero::DIAG_SERVICE_ID,
+                        rt.request(dev.addr, sero::DIAG_SERVICE_ID,
                                    static_cast<uint16_t>(sero::DiagMethod::DIAG_CLEAR_DTCS),
                                    payload, 2, on_clear_response, nullptr,
                                    REQUEST_TIMEOUT_MS, now);
@@ -429,10 +440,13 @@ int main(int argc, char* argv[]) {
             // Print after a brief delay to let responses arrive
         }
 
-        // Print dashboard shortly after query responses should have arrived
-        if (last_scan_ms > 0 && now - last_scan_ms > 500 &&
-            now - last_scan_ms < 600) {
+        // Print dashboard once, ~500 ms after queries were sent, to allow
+        // responses to arrive before rendering. The flag prevents re-printing
+        // on every loop iteration during that window.
+        if (!g_dashboard_printed && g_last_scan_ms > 0 &&
+            now - g_last_scan_ms >= 500) {
             print_dashboard();
+            g_dashboard_printed = true;
         }
 
         std::this_thread::sleep_for(std::chrono::milliseconds(1));

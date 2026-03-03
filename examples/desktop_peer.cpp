@@ -264,6 +264,7 @@ int main(int argc, char* argv[]) {
     app.last_tick_ms       = now;
     app.last_diag_ms       = now;
 
+    rt.enable_diagnostics(now);
     std::printf("\n[main] Entering main loop (Ctrl+C to quit)\n\n");
 
     // ════════════════════════════════════════════════════════════
