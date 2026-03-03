@@ -616,6 +616,15 @@ private:
             case SdMethod::SD_FIND_SERVICE: {
                 uint16_t sid;
                 if (sd_payload::deserialize_find(payload, payload_length, sid)) {
+                    // Treat an incoming SD_FIND as a reboot signal for the sender.
+                    // A live consumer that hasn't restarted has no reason to
+                    // re-issue SD_FIND for a service it already tracks, so clearing
+                    // the E2E peer state here lets the restarted consumer's fresh
+                    // (small) sequence counters be accepted instead of being
+                    // rejected as Stale.  reset_peer() is a no-op when the address
+                    // is not yet tracked, so this is safe for first-time finders.
+                    // See §4.7 and §7.2.
+                    e2e_.reset_peer(source);
                     sd_.handle_find(sid, source,
                         [this](const Addr& dest, const uint8_t* msg, std::size_t len) {
                             send_sd_unicast(dest, msg, len);

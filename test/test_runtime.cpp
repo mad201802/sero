@@ -461,6 +461,95 @@ TEST_F(RuntimeTest, SdFindMessage_ProviderResponds) {
     EXPECT_GE(transport.sent.size(), 1u);
 }
 
+// ── Consumer reboot via SD_FIND resets E2E state (§4.7, §7.2) ────
+
+// Regression: when a consumer restarts it sends SD_FIND before issuing new
+// requests.  Its tx_seq_ resets to 0, but the provider still had the consumer
+// tracked with a high last_seen value.  The unsigned delta can exceed
+// SeqCounterAcceptWindow → every request is rejected as Stale.
+// The fix: handle_sd_message calls e2e_.reset_peer(source) on SD_FIND_SERVICE
+// so the subsequent requests are treated as FirstSeen and accepted.
+TEST_F(RuntimeTest, SdFindMessage_ResetsConsumerE2EState) {
+    StubService svc;
+    rt->register_service(0x1000, svc, 1, 0);
+    rt->offer_service(0x1000, 10, 0);
+
+    const Addr consumer = make_addr(50);
+
+    // Phase 1: establish last_seen=20 for this consumer address.
+    {
+        MessageHeader hdr = make_request(0x1000, 0x0001, 0, 1);
+        hdr.sequence_counter = 20;
+        inject_and_process(hdr, nullptr, 0, consumer, 100);
+    }
+    ASSERT_EQ(svc.last_method_id, 0x0001); // accepted (FirstSeen)
+    transport.clear();
+    svc.last_method_id = 0;
+
+    // Phase 2: consumer "reboots" and re-sends SD_FIND_SERVICE.
+    {
+        MessageHeader sd_hdr{};
+        sd_hdr.version          = PROTOCOL_VERSION;
+        sd_hdr.message_type     = static_cast<uint8_t>(MessageType::REQUEST_NO_RETURN);
+        sd_hdr.return_code      = 0;
+        sd_hdr.flags            = 0;
+        sd_hdr.service_id       = SD_SERVICE_ID;
+        sd_hdr.method_event_id  = static_cast<uint16_t>(SdMethod::SD_FIND_SERVICE);
+        sd_hdr.client_id        = 0x0002;
+        sd_hdr.sequence_counter = 0;
+        sd_hdr.request_id       = 0;
+
+        uint8_t find_payload[SD_FIND_PAYLOAD_SIZE];
+        sd_payload::serialize_find(find_payload, 0x1000);
+        sd_hdr.payload_length = SD_FIND_PAYLOAD_SIZE;
+
+        inject_and_process(sd_hdr, find_payload, SD_FIND_PAYLOAD_SIZE, consumer, 200);
+    }
+    transport.clear();
+
+    // Phase 3: consumer sends the first post-reboot request with seq=1.
+    // Without the fix: delta = (1 - 20) mod 256 = 237 > SeqCounterAcceptWindow(15)
+    //                  → SeqResult::Stale → request dropped.
+    // With    the fix: peer state was cleared by SD_FIND → SeqResult::FirstSeen
+    //                  → request accepted.
+    {
+        MessageHeader hdr = make_request(0x1000, 0x0001, 0, 2);
+        hdr.sequence_counter = 1; // small seq after reboot
+        inject_and_process(hdr, nullptr, 0, consumer, 300);
+    }
+
+    EXPECT_EQ(svc.last_method_id, 0x0001); // must have been dispatched
+    EXPECT_EQ(rt->diagnostics().get(DiagnosticCounter::StaleMessages), 0u);
+}
+
+// Sanity check: without an intervening SD_FIND, a stale sequence IS rejected.
+// This confirms the above test exercises a real code path.
+TEST_F(RuntimeTest, StaleSequence_WithoutSdFind_IsRejected) {
+    StubService svc;
+    rt->register_service(0x1000, svc, 1, 0);
+
+    const Addr consumer = make_addr(51);
+
+    // Seed last_seen=20.
+    {
+        MessageHeader hdr = make_request(0x1000, 0x0001, 0, 1);
+        hdr.sequence_counter = 20;
+        inject_and_process(hdr, nullptr, 0, consumer, 100);
+    }
+    svc.last_method_id = 0;
+    transport.clear();
+
+    // Send seq=1 without any SD_FIND reset → must be dropped as Stale.
+    {
+        MessageHeader hdr = make_request(0x1000, 0x0001, 0, 2);
+        hdr.sequence_counter = 1;
+        inject_and_process(hdr, nullptr, 0, consumer, 200);
+    }
+
+    EXPECT_EQ(svc.last_method_id, 0u); // not dispatched
+    EXPECT_EQ(rt->diagnostics().get(DiagnosticCounter::StaleMessages), 1u);
+}
+
 // ── Request timeout eviction ────────────────────────────────────
 
 TEST_F(RuntimeTest, RequestTimeout_EvictsAndCallsCallback) {
