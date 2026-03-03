@@ -264,7 +264,9 @@ int main(int argc, char* argv[]) {
     app.last_tick_ms       = now;
     app.last_diag_ms       = now;
 
-    rt.enable_diagnostics(now);
+    if (!rt.enable_diagnostics(now)) {
+        std::fprintf(stderr, "[main] Failed to enable diagnostics; diagnostics will be unavailable.\n");
+    }
     std::printf("\n[main] Entering main loop (Ctrl+C to quit)\n\n");
 
     // ════════════════════════════════════════════════════════════
