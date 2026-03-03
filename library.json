@@ -18,9 +18,6 @@
   ],
   "license": "MIT",
   "homepage": "https://github.com/mad201802/sero/",
-  "dependencies": {
-    "ownername/print": "~1.3.0"
-  },
   "frameworks": "*",
   "platforms": "*"
 }
