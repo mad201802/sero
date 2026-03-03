@@ -1,0 +1,26 @@
+{
+  "name": "sero",
+  "version": "0.1.0",
+  "description": "Embedded-first, realtime-ready service-oriented communication for C++17",
+  "keywords": "c++17, communication, service-discovery",
+  "repository":
+  {
+    "type": "git",
+    "url": "https://github.com/mad201802/sero.git"
+  },
+  "authors":
+  [
+    {
+      "name": "Michael Dick",
+      "email": "45396189+mad201802@users.noreply.github.com",
+      "maintainer": true
+    }
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/mad201802/sero/",
+  "dependencies": {
+    "ownername/print": "~1.3.0"
+  },
+  "frameworks": "*",
+  "platforms": "*"
+}
