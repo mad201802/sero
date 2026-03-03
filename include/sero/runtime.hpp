@@ -154,24 +154,25 @@ public:
         if (!sd_.get_provider_address(service_id, provider)) {
             return std::nullopt; // service not found
         }
+        return request_impl(provider, service_id, method_id, payload, payload_length,
+                            callback, user_ctx, timeout_ms, now_ms);
+    }
 
-        auto rid = request_tracker_.allocate(service_id, method_id,
-                                             timeout_ms, now_ms,
-                                             callback, user_ctx);
-        if (!rid) return std::nullopt; // table full
-
-        bool auth = should_auth_outgoing(provider);
-        MessageHeader hdr = make_request_header(service_id, method_id,
-                                                 payload_length, *rid, auth);
-        hdr.sequence_counter = e2e_.next_sequence();
-        std::size_t total = build_message(hdr, payload, payload_length, auth, provider);
-        if (!transport_.send(provider, tx_buffer_, total)) {
-            // Send failed — cancel the pending request
-            request_tracker_.complete(*rid, ReturnCode::E_NOT_OK, nullptr, 0);
-            diag_.increment(DiagnosticCounter::DroppedMessages);
-            return std::nullopt;
-        }
-        return rid;
+    /// Send a REQUEST to an explicit target address, bypassing SD lookup.
+    /// Use this when you manage multiple providers of the same service_id
+    /// (e.g. a diagnostic scanner querying each discovered device directly).
+    std::optional<uint32_t> request(const Addr& target,
+                                    uint16_t service_id,
+                                    uint16_t method_id,
+                                    const uint8_t* payload,
+                                    std::size_t payload_length,
+                                    RequestCallback callback,
+                                    void* user_ctx,
+                                    uint32_t timeout_ms,
+                                    uint32_t now_ms)
+    {
+        return request_impl(target, service_id, method_id, payload, payload_length,
+                            callback, user_ctx, timeout_ms, now_ms);
     }
 
     /// Fire-and-forget REQUEST_NO_RETURN (§5.2).
@@ -704,6 +705,35 @@ private:
     }
 
     // ── Message building ────────────────────────────────────────
+
+    /// Internal: allocate a request ID, build, and send to a known target.
+    std::optional<uint32_t> request_impl(const Addr& target,
+                                         uint16_t service_id,
+                                         uint16_t method_id,
+                                         const uint8_t* payload,
+                                         std::size_t payload_length,
+                                         RequestCallback callback,
+                                         void* user_ctx,
+                                         uint32_t timeout_ms,
+                                         uint32_t now_ms)
+    {
+        auto rid = request_tracker_.allocate(service_id, method_id,
+                                             timeout_ms, now_ms,
+                                             callback, user_ctx);
+        if (!rid) return std::nullopt; // table full
+
+        bool auth = should_auth_outgoing(target);
+        MessageHeader hdr = make_request_header(service_id, method_id,
+                                                 payload_length, *rid, auth);
+        hdr.sequence_counter = e2e_.next_sequence();
+        std::size_t total = build_message(hdr, payload, payload_length, auth, target);
+        if (!transport_.send(target, tx_buffer_, total)) {
+            request_tracker_.complete(*rid, ReturnCode::E_NOT_OK, nullptr, 0);
+            diag_.increment(DiagnosticCounter::DroppedMessages);
+            return std::nullopt;
+        }
+        return rid;
+    }
 
     /// Build a complete message in tx_buffer_. Returns total byte count.
     std::size_t build_message(const MessageHeader& hdr,

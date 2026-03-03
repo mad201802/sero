@@ -349,6 +349,55 @@ TEST_F(RuntimeTest, ClientRequest_ServiceFound_SendsAndTracksRequest) {
     EXPECT_TRUE(callback_called);
 }
 
+// ── Client-side Explicit-Target Request ─────────────────────────
+
+TEST_F(RuntimeTest, ClientRequest_ExplicitTarget_SendsWithoutSD) {
+    // SD has no provider registered — explicit-target overload must still send
+    Addr target = make_addr(42);
+
+    bool callback_called = false;
+    auto cb = [](ReturnCode, const uint8_t*, std::size_t, void* ctx) {
+        *static_cast<bool*>(ctx) = true;
+    };
+
+    auto rid = rt->request(target, 0x1000, 0x0001, nullptr, 0,
+                           cb, &callback_called, 500, 0);
+    ASSERT_TRUE(rid.has_value());
+    ASSERT_EQ(transport.sent.size(), 1u);
+
+    // Verify the message was sent to the explicit target
+    EXPECT_EQ(transport.sent[0].destination, target);
+
+    MessageHeader sent_hdr = MessageHeader::deserialize(transport.sent[0].data.data());
+    EXPECT_EQ(sent_hdr.message_type, static_cast<uint8_t>(MessageType::REQUEST));
+    EXPECT_EQ(sent_hdr.service_id, 0x1000);
+    EXPECT_EQ(sent_hdr.method_event_id, 0x0001);
+}
+
+TEST_F(RuntimeTest, ClientRequest_ExplicitTarget_ResponseCompletesCallback) {
+    Addr target = make_addr(42);
+
+    bool callback_called = false;
+    ReturnCode received_rc = ReturnCode::E_NOT_OK;
+    auto cb = [](ReturnCode rc, const uint8_t*, std::size_t, void* ctx) {
+        auto* pair = static_cast<std::pair<bool*, ReturnCode*>*>(ctx);
+        *pair->first  = true;
+        *pair->second = rc;
+    };
+
+    std::pair<bool*, ReturnCode*> ctx{&callback_called, &received_rc};
+    auto rid = rt->request(target, 0x1000, 0x0001, nullptr, 0,
+                           cb, &ctx, 500, 100);
+    ASSERT_TRUE(rid.has_value());
+
+    // Inject a RESPONSE for this request_id from the explicit target
+    MessageHeader resp_hdr = make_response(0x1000, 0x0001, 0, *rid);
+    inject_and_process(resp_hdr, nullptr, 0, target, 200);
+
+    EXPECT_TRUE(callback_called);
+    EXPECT_EQ(received_rc, ReturnCode::E_OK);
+}
+
 // ── Client-side Fire-and-Forget ─────────────────────────────────
 
 TEST_F(RuntimeTest, ClientFireAndForget_ServiceFound_Sends) {
