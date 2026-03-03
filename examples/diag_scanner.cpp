@@ -19,6 +19,7 @@
 #include <thread>
 #include <chrono>
 #include <csignal>
+#include <deque>
 #include <vector>
 
 // ─── Configuration ──────────────────────────────────────────────
@@ -75,7 +76,7 @@ struct DiscoveredDevice {
     DeviceCounters              counters;
 };
 
-static std::vector<DiscoveredDevice> devices;
+static std::deque<DiscoveredDevice> devices;
 static Runtime* g_rt = nullptr;
 static volatile std::sig_atomic_t running = 1;
 static uint32_t g_last_scan_ms      = 0;   // last time queries were issued
