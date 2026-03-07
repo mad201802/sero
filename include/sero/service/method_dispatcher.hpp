@@ -35,7 +35,7 @@ public:
         for (std::size_t i = 0; i < count_; ++i) {
             if (services_[i].active && services_[i].service_id == service_id) {
                 // Move last into this slot to keep array compact
-                services_[i] = services_[count_ - 1];
+                if (i != count_ - 1) services_[i] = services_[count_ - 1];
                 services_[count_ - 1] = ServiceEntry{};
                 --count_;
                 return true;

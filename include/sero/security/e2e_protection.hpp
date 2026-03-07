@@ -39,7 +39,7 @@ public:
         for (std::size_t i = 0; i < peer_count_; ++i) {
             if (peers_[i].address == source) {
                 // Remove by compacting
-                peers_[i] = peers_[peer_count_ - 1];
+                if (i != peer_count_ - 1) peers_[i] = peers_[peer_count_ - 1];
                 peers_[peer_count_ - 1] = PeerEntry{};
                 --peer_count_;
                 return;

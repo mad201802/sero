@@ -357,6 +357,19 @@ public:
                     send_subscribe(st, ce->provider_addr, send_fn);
                     st.last_sent_ms = now_ms;
                 }
+            } else {
+                // No ACK received yet — retry after SubscriptionTtlSeconds
+                uint32_t retry_interval = static_cast<uint32_t>(Config::SubscriptionTtlSeconds) * 1000u;
+                if (time_after_or_eq(now_ms, st.last_sent_ms + retry_interval)) {
+                    if (st.ack_retry_count < 2) {
+                        send_subscribe(st, ce->provider_addr, send_fn);
+                        st.last_sent_ms = now_ms;
+                        ++st.ack_retry_count;
+                    } else {
+                        // Retries exhausted — give up
+                        st.active = false;
+                    }
+                }
             }
         }
     }
@@ -542,6 +555,7 @@ private:
         bool     needs_send       = false;
         bool     needs_unsubscribe = false;
         uint32_t last_sent_ms     = 0;
+        uint8_t  ack_retry_count  = 0;  ///< Retries when no ACK received.
     };
 
     std::array<ProviderEntry, Config::MaxServices>      providers_{};

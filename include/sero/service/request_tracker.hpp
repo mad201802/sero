@@ -33,7 +33,21 @@ public:
     {
         for (std::size_t i = 0; i < Config::MaxPendingRequests; ++i) {
             if (!entries_[i].active) {
-                uint32_t rid = next_request_id_++;
+                // Find a request_id that isn't already active
+                uint32_t rid = next_request_id_;
+                for (std::size_t attempt = 0; attempt < Config::MaxPendingRequests; ++attempt) {
+                    bool collision = false;
+                    for (std::size_t j = 0; j < Config::MaxPendingRequests; ++j) {
+                        if (entries_[j].active && entries_[j].request_id == rid) {
+                            collision = true;
+                            break;
+                        }
+                    }
+                    if (!collision) break;
+                    ++rid;
+                }
+                next_request_id_ = rid + 1;
+
                 auto& e          = entries_[i];
                 e.request_id     = rid;
                 e.service_id     = service_id;

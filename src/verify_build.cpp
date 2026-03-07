@@ -58,14 +58,14 @@ int main() {
     rt.set_local_address(local_addr);
 
     EchoService echo;
-    rt.register_service(0x0100, echo, 1, 0);
-    rt.register_event(0x0100, 0x8001);
-    rt.offer_service(0x0100, 5, 0);
+    (void)rt.register_service(0x0100, echo, 1, 0);
+    (void)rt.register_event(0x0100, 0x8001);
+    (void)rt.offer_service(0x0100, 5, 0);
 
     // Diagnostics service
-    rt.enable_diagnostics(0);
-    rt.report_dtc(0x0010, sero::DtcSeverity::Error, 100);
-    rt.report_dtc(0x0020, sero::DtcSeverity::Warning, 200);
+    (void)rt.enable_diagnostics(0);
+    (void)rt.report_dtc(0x0010, sero::DtcSeverity::Error, 100);
+    (void)rt.report_dtc(0x0020, sero::DtcSeverity::Warning, 200);
     rt.clear_dtc(0x0010);
     rt.clear_all_dtcs();
 
