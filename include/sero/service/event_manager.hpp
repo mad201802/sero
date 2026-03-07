@@ -78,7 +78,7 @@ public:
         for (std::size_t i = 0; i < ev->sub_count; ++i) {
             if (ev->subscribers[i].client_id == client_id) {
                 // Compact: move last into this slot
-                ev->subscribers[i] = ev->subscribers[ev->sub_count - 1];
+                if (i != ev->sub_count - 1) ev->subscribers[i] = ev->subscribers[ev->sub_count - 1];
                 ev->subscribers[ev->sub_count - 1] = Subscriber{};
                 --ev->sub_count;
                 return;
@@ -95,7 +95,7 @@ public:
             while (i < ev.sub_count) {
                 if (time_after(now_ms, ev.subscribers[i].expiry_ms)) {
                     // Expired — compact
-                    ev.subscribers[i] = ev.subscribers[ev.sub_count - 1];
+                    if (i != ev.sub_count - 1) ev.subscribers[i] = ev.subscribers[ev.sub_count - 1];
                     ev.subscribers[ev.sub_count - 1] = Subscriber{};
                     --ev.sub_count;
                 } else {

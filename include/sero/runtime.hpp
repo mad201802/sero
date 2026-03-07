@@ -33,6 +33,14 @@ public:
     static constexpr std::size_t MAX_MSG_SIZE =
         MessageHeader::SIZE + Config::MaxPayloadSize + HMAC_SIZE + CRC_SIZE;
 
+    // Compile-time sanity checks for config products that determine RAM usage.
+    static_assert(Config::MaxServices * Config::MaxEvents <= 1024,
+        "MaxServices * MaxEvents is very large — review RAM budget");
+    static_assert(Config::MaxKnownServices * Config::MaxEvents <= 1024,
+        "MaxKnownServices * MaxEvents is very large — review RAM budget");
+    static_assert(Config::MaxPayloadSize <= 8192,
+        "MaxPayloadSize exceeds 8 KB — review RAM budget");
+
     // ── Construction ────────────────────────────────────────────
 
     Runtime(TransportImpl& transport, uint16_t client_id)
@@ -58,11 +66,13 @@ public:
         }
         uptime_ms_ = now_ms - uptime_epoch_ms_;
 
-        // 1. Drain transport
+        // 1. Drain transport (bounded to prevent starvation)
         Addr source{};
         const uint8_t* data = nullptr;
         std::size_t length = 0;
-        while (transport_.poll(source, data, length)) {
+        for (std::size_t drain = 0;
+             drain < Config::MaxReceiveQueueSize && transport_.poll(source, data, length);
+             ++drain) {
             validate_and_dispatch(source, data, length, now_ms);
         }
 
@@ -99,7 +109,7 @@ public:
     // ── Service registration (provider side) ────────────────────
 
     template <typename Impl>
-    bool register_service(uint16_t service_id, IService<Impl>& svc,
+    [[nodiscard]] bool register_service(uint16_t service_id, IService<Impl>& svc,
                           uint8_t major, uint8_t minor,
                           bool auth_required = false)
     {
@@ -112,13 +122,13 @@ public:
     }
 
     /// Register an event that this device can produce notifications for.
-    bool register_event(uint16_t service_id, uint16_t event_id) {
+    [[nodiscard]] bool register_event(uint16_t service_id, uint16_t event_id) {
         return event_manager_.register_event(service_id, event_id);
     }
 
     // ── Service offering (provider SD) ──────────────────────────
 
-    bool offer_service(uint16_t service_id, uint16_t ttl_seconds, uint32_t now_ms) {
+    [[nodiscard]] bool offer_service(uint16_t service_id, uint16_t ttl_seconds, uint32_t now_ms) {
         const ServiceEntry* se = dispatcher_.find(service_id);
         if (!se) return false;
         return sd_.offer(service_id, se->major_version, se->minor_version,
@@ -131,7 +141,7 @@ public:
 
     // ── Service discovery (consumer SD) ─────────────────────────
 
-    bool find_service(uint16_t service_id, uint8_t major_version, uint32_t now_ms) {
+    [[nodiscard]] bool find_service(uint16_t service_id, uint8_t major_version, uint32_t now_ms) {
         return sd_.find(service_id, major_version, now_ms);
     }
 
@@ -141,7 +151,7 @@ public:
 
     /// Send a REQUEST and track the pending response.
     /// Returns the request_id or std::nullopt if failed.
-    std::optional<uint32_t> request(uint16_t service_id,
+    [[nodiscard]] std::optional<uint32_t> request(uint16_t service_id,
                                     uint16_t method_id,
                                     const uint8_t* payload,
                                     std::size_t payload_length,
@@ -176,7 +186,7 @@ public:
     }
 
     /// Fire-and-forget REQUEST_NO_RETURN (§5.2).
-    bool fire_and_forget(uint16_t service_id, uint16_t method_id,
+    [[nodiscard]] bool fire_and_forget(uint16_t service_id, uint16_t method_id,
                          const uint8_t* payload, std::size_t payload_length)
     {
         Addr provider{};
@@ -207,7 +217,7 @@ public:
 
     /// Subscribe to a remote event. Handler receives notifications.
     template <typename Impl>
-    bool subscribe_event(uint16_t service_id, uint16_t event_id,
+    [[nodiscard]] bool subscribe_event(uint16_t service_id, uint16_t event_id,
                          IEventHandler<Impl>& handler,
                          uint16_t ttl_seconds, uint32_t now_ms)
     {
@@ -227,7 +237,7 @@ public:
     // ── Event notification (provider side, §6.2) ────────────────
 
     /// Push a notification to all subscribers of an event.
-    bool notify_event(uint16_t service_id, uint16_t event_id,
+    [[nodiscard]] bool notify_event(uint16_t service_id, uint16_t event_id,
                       const uint8_t* payload, std::size_t payload_length,
                       uint32_t /*now_ms*/ = 0)
     {
@@ -278,7 +288,7 @@ public:
     /// @param auth_required  When true, requests to the diagnostics service
     ///                       must carry a valid HMAC (recommended for
     ///                       state-changing methods like DIAG_CLEAR_DTCS).
-    bool enable_diagnostics(uint32_t now_ms, bool auth_required = false) {
+    [[nodiscard]] bool enable_diagnostics(uint32_t now_ms, bool auth_required = false) {
         if (diag_enabled_) return true; // idempotent
         diag_service_.init(&dtc_store_, &diag_, &dispatcher_,
                            client_id_, &uptime_ms_);
@@ -295,7 +305,7 @@ public:
     }
 
     /// Report a DTC (application-level error code).
-    bool report_dtc(uint16_t code, DtcSeverity severity, uint32_t now_ms) {
+    [[nodiscard]] bool report_dtc(uint16_t code, DtcSeverity severity, uint32_t now_ms) {
         if constexpr (Config::MaxDtcs == 0) {
             return false;
         } else {
@@ -742,6 +752,9 @@ private:
                               bool auth,
                               const Addr& peer)
     {
+        // Bounds check — prevent buffer overflow
+        if (payload_length > Config::MaxPayloadSize) return 0;
+
         // Header
         MessageHeader mutable_hdr = hdr;
         mutable_hdr.serialize(tx_buffer_);
@@ -847,7 +860,7 @@ private:
             if (event_handlers_[i].active &&
                 event_handlers_[i].service_id == service_id &&
                 event_handlers_[i].event_id == event_id) {
-                event_handlers_[i] = event_handlers_[event_handler_count_ - 1];
+                if (i != event_handler_count_ - 1) event_handlers_[i] = event_handlers_[event_handler_count_ - 1];
                 event_handlers_[event_handler_count_ - 1] = EventHandlerEntry{};
                 --event_handler_count_;
                 return;

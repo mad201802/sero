@@ -35,7 +35,7 @@ public:
         for (std::size_t i = 0; i < count_; ++i) {
             if (dtcs_[i].active && dtcs_[i].code == code) {
                 dtcs_[i].severity = static_cast<uint8_t>(severity);
-                dtcs_[i].occurrence_count++;
+                if (dtcs_[i].occurrence_count < UINT32_MAX) dtcs_[i].occurrence_count++;
                 dtcs_[i].last_seen_ms = now_ms;
                 return true;
             }
@@ -57,7 +57,7 @@ public:
     bool clear(uint16_t code) {
         for (std::size_t i = 0; i < count_; ++i) {
             if (dtcs_[i].active && dtcs_[i].code == code) {
-                dtcs_[i] = dtcs_[count_ - 1];
+                if (i != count_ - 1) dtcs_[i] = dtcs_[count_ - 1];
                 dtcs_[count_ - 1] = Dtc{};
                 --count_;
                 return true;

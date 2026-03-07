@@ -266,8 +266,8 @@ TEST(DiagnosticsService_Runtime, ClearDtcs) {
     test::MockTransport transport;
     Runtime<test::MockTransport, test::SmallConfig> rt(transport, 0x0042);
 
-    rt.report_dtc(0x0001, DtcSeverity::Info, 100);
-    rt.report_dtc(0x0002, DtcSeverity::Warning, 200);
+    (void)rt.report_dtc(0x0001, DtcSeverity::Info, 100);
+    (void)rt.report_dtc(0x0002, DtcSeverity::Warning, 200);
 
     EXPECT_TRUE(rt.clear_dtc(0x0001));
     EXPECT_EQ(rt.dtc_store().count(), 1u);
@@ -285,7 +285,7 @@ TEST(DiagnosticsService_Runtime, EndToEndGetDeviceInfo) {
     rt.set_local_address(local);
 
     uint32_t now = 5000;
-    rt.enable_diagnostics(now);
+    (void)rt.enable_diagnostics(now);
     rt.process(now);  // establish uptime
 
     // Build a request for DIAG_GET_DEVICE_INFO from a remote peer

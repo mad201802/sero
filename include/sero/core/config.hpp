@@ -35,4 +35,29 @@ struct DefaultConfig {
     static constexpr std::size_t MaxDtcs                    = 32;
 };
 
+/// Embedded-friendly configuration for resource-constrained MCUs (ESP32, STM32, etc.).
+/// sizeof(Runtime) with this config is approximately 3–4 KB.
+struct EmbeddedConfig {
+    static constexpr std::size_t MaxPayloadSize           = 256;
+    static constexpr std::size_t MaxServices               = 4;
+    static constexpr std::size_t MaxMethods                = 8;
+    static constexpr std::size_t MaxEvents                 = 4;
+    static constexpr std::size_t MaxSubscribers            = 4;
+    static constexpr std::size_t MaxPendingRequests        = 4;
+    static constexpr std::size_t MaxKnownServices          = 8;
+    static constexpr uint32_t    RequestTimeoutMs          = 500;
+    static constexpr uint16_t    OfferTtlSeconds           = 5;
+    static constexpr uint16_t    SubscriptionTtlSeconds    = 10;
+    static constexpr uint8_t     SdFindRetryCount          = 3;
+    static constexpr uint32_t    SdFindInitialDelayMs      = 100;
+    static constexpr uint8_t     SdFindBackoffMultiplier   = 2;
+    static constexpr uint32_t    SdFindJitterMs            = 50;
+    static constexpr uint8_t     SeqCounterAcceptWindow    = 15;
+    static constexpr std::size_t TransportAddressSize      = 8;
+    static constexpr std::size_t MaxReceiveQueueSize       = 8;
+    static constexpr std::size_t MaxTrackedPeers           = 8;
+    static constexpr std::size_t HmacKeySize               = 32;
+    static constexpr std::size_t MaxDtcs                    = 8;
+};
+
 } // namespace sero

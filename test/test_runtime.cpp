@@ -188,7 +188,7 @@ TEST_F(RuntimeTest, Validation_RequestWithZeroClientId_Drops) {
 
 TEST_F(RuntimeTest, Validation_DuplicateSequence_IncrementsCounter) {
     StubService svc;
-    rt->register_service(0x1000, svc, 1, 0);
+    (void)rt->register_service(0x1000, svc, 1, 0);
 
     // First message with seq=5 → FirstSeen, accepted
     MessageHeader hdr1 = make_request(0x1000, 0x0001, 0, 1);
@@ -207,7 +207,7 @@ TEST_F(RuntimeTest, Validation_DuplicateSequence_IncrementsCounter) {
 
 TEST_F(RuntimeTest, Validation_AuthRequired_NoHmac_Drops) {
     StubService svc;
-    rt->register_service(0x1000, svc, 1, 0, /*auth_required=*/true);
+    (void)rt->register_service(0x1000, svc, 1, 0, /*auth_required=*/true);
 
     // Message without auth flag → auth failure
     MessageHeader hdr = make_request(0x1000, 0x0001, 0, 1);
@@ -224,7 +224,7 @@ TEST_F(RuntimeTest, Validation_AuthPresentButBadHmac_Drops) {
     rt->set_hmac_key(peer, key);
 
     StubService svc;
-    rt->register_service(0x1000, svc, 1, 0);
+    (void)rt->register_service(0x1000, svc, 1, 0);
 
     MessageHeader hdr = make_request(0x1000, 0x0001, 0, 1);
     hdr.flags = FLAG_AUTH;
@@ -242,7 +242,7 @@ TEST_F(RuntimeTest, Validation_AuthPresentButBadHmac_Drops) {
 TEST_F(RuntimeTest, RequestResponse_FullFlow) {
     StubService svc;
     svc.response_data = {0xCA, 0xFE};
-    rt->register_service(0x1000, svc, 1, 0);
+    (void)rt->register_service(0x1000, svc, 1, 0);
 
     uint8_t payload[] = {0x01, 0x02};
     MessageHeader hdr = make_request(0x1000, 0x0042, 2, 100);
@@ -282,7 +282,7 @@ TEST_F(RuntimeTest, RequestResponse_UnknownService_SendsError) {
 TEST_F(RuntimeTest, RequestResponse_NotReady_SendsError) {
     StubService svc;
     svc.ready = false;
-    rt->register_service(0x1000, svc, 1, 0);
+    (void)rt->register_service(0x1000, svc, 1, 0);
 
     MessageHeader hdr = make_request(0x1000, 0x0001, 0, 1);
     inject_and_process(hdr, nullptr, 0, make_addr(10), 0);
@@ -298,7 +298,7 @@ TEST_F(RuntimeTest, RequestResponse_NotReady_SendsError) {
 
 TEST_F(RuntimeTest, FireAndForget_Dispatches_NoResponse) {
     StubService svc;
-    rt->register_service(0x1000, svc, 1, 0);
+    (void)rt->register_service(0x1000, svc, 1, 0);
 
     MessageHeader hdr{};
     hdr.version          = PROTOCOL_VERSION;
@@ -327,7 +327,7 @@ TEST_F(RuntimeTest, ClientRequest_ServiceNotFound_ReturnsNullopt) {
 
 TEST_F(RuntimeTest, ClientRequest_ServiceFound_SendsAndTracksRequest) {
     // Emulate consumer-side: find → handle_offer → provider known
-    rt->find_service(0x1000, 1, 0);
+    (void)rt->find_service(0x1000, 1, 0);
     rt->service_discovery().handle_offer(0x1000, 1, 30, 0x0001, make_addr(20), 0);
 
     bool callback_called = false;
@@ -401,7 +401,7 @@ TEST_F(RuntimeTest, ClientRequest_ExplicitTarget_ResponseCompletesCallback) {
 // ── Client-side Fire-and-Forget ─────────────────────────────────
 
 TEST_F(RuntimeTest, ClientFireAndForget_ServiceFound_Sends) {
-    rt->find_service(0x1000, 1, 0);
+    (void)rt->find_service(0x1000, 1, 0);
     rt->service_discovery().handle_offer(0x1000, 1, 30, 0x0001, make_addr(20), 0);
 
     bool ok = rt->fire_and_forget(0x1000, 0x0042, nullptr, 0);
@@ -421,7 +421,7 @@ TEST_F(RuntimeTest, ClientFireAndForget_ServiceNotFound_ReturnsFalse) {
 // ── Notification (provider side) ────────────────────────────────
 
 TEST_F(RuntimeTest, NotifyEvent_NoSubscribers_ReturnsFalse) {
-    rt->register_event(0x1000, 0x8001);
+    (void)rt->register_event(0x1000, 0x8001);
     EXPECT_FALSE(rt->notify_event(0x1000, 0x8001, nullptr, 0));
 }
 
@@ -430,9 +430,9 @@ TEST_F(RuntimeTest, NotifyEvent_NoSubscribers_ReturnsFalse) {
 TEST_F(RuntimeTest, NotificationDispatch_MatchingHandler) {
     StubEventHandler handler;
     // Register a service so we can subscribe
-    rt->find_service(0x1000, 1, 0);
+    (void)rt->find_service(0x1000, 1, 0);
     rt->service_discovery().handle_offer(0x1000, 1, 30, 0x0001, make_addr(20), 0);
-    rt->subscribe_event(0x1000, 0x8001, handler, 60, 0);
+    (void)rt->subscribe_event(0x1000, 0x8001, handler, 60, 0);
 
     // Inject a NOTIFICATION
     uint8_t payload[] = {0xDE, 0xAD};
@@ -456,7 +456,7 @@ TEST_F(RuntimeTest, NotificationDispatch_NoHandler_Ignored) {
 // ── SD message routing ──────────────────────────────────────────
 
 TEST_F(RuntimeTest, SdOfferMessage_ParsesToConsumer) {
-    rt->find_service(0x1000, 1, 0);
+    (void)rt->find_service(0x1000, 1, 0);
 
     // Build an SD_OFFER message
     MessageHeader sd_hdr{};
@@ -485,8 +485,8 @@ TEST_F(RuntimeTest, SdOfferMessage_ParsesToConsumer) {
 
 TEST_F(RuntimeTest, SdFindMessage_ProviderResponds) {
     StubService svc;
-    rt->register_service(0x1000, svc, 1, 0);
-    rt->offer_service(0x1000, 10, 0);
+    (void)rt->register_service(0x1000, svc, 1, 0);
+    (void)rt->offer_service(0x1000, 10, 0);
 
     // Build an SD_FIND message
     MessageHeader sd_hdr{};
@@ -520,8 +520,8 @@ TEST_F(RuntimeTest, SdFindMessage_ProviderResponds) {
 // so the subsequent requests are treated as FirstSeen and accepted.
 TEST_F(RuntimeTest, SdFindMessage_ResetsConsumerE2EState) {
     StubService svc;
-    rt->register_service(0x1000, svc, 1, 0);
-    rt->offer_service(0x1000, 10, 0);
+    (void)rt->register_service(0x1000, svc, 1, 0);
+    (void)rt->offer_service(0x1000, 10, 0);
 
     const Addr consumer = make_addr(50);
 
@@ -575,7 +575,7 @@ TEST_F(RuntimeTest, SdFindMessage_ResetsConsumerE2EState) {
 // This confirms the above test exercises a real code path.
 TEST_F(RuntimeTest, StaleSequence_WithoutSdFind_IsRejected) {
     StubService svc;
-    rt->register_service(0x1000, svc, 1, 0);
+    (void)rt->register_service(0x1000, svc, 1, 0);
 
     const Addr consumer = make_addr(51);
 
@@ -602,7 +602,7 @@ TEST_F(RuntimeTest, StaleSequence_WithoutSdFind_IsRejected) {
 // ── Request timeout eviction ────────────────────────────────────
 
 TEST_F(RuntimeTest, RequestTimeout_EvictsAndCallsCallback) {
-    rt->find_service(0x1000, 1, 0);
+    (void)rt->find_service(0x1000, 1, 0);
     rt->service_discovery().handle_offer(0x1000, 1, 30, 0x0001, make_addr(20), 0);
 
     ReturnCode timeout_rc = ReturnCode::E_OK;
@@ -624,7 +624,7 @@ TEST_F(RuntimeTest, RequestTimeout_EvictsAndCallsCallback) {
 // ── Subscription eviction ───────────────────────────────────────
 
 TEST_F(RuntimeTest, EventSubscriptionExpiry_RemovesSubscriber) {
-    rt->register_event(0x1000, 0x8001);
+    (void)rt->register_event(0x1000, 0x8001);
 
     // Simulate an incoming subscribe from a remote client
     MessageHeader sd_hdr{};
@@ -664,7 +664,7 @@ TEST_F(RuntimeTest, Auth_ValidHmac_Accepted) {
 
     StubService svc;
     svc.response_data = {0xCC};
-    rt->register_service(0x1000, svc, 1, 0);
+    (void)rt->register_service(0x1000, svc, 1, 0);
 
     // Build a message with valid HMAC
     uint8_t payload[] = {0x01};
@@ -695,7 +695,7 @@ TEST_F(RuntimeTest, Auth_ValidHmac_Accepted) {
 
 TEST_F(RuntimeTest, ProcessDrainsMultipleMessages) {
     StubService svc;
-    rt->register_service(0x1000, svc, 1, 0);
+    (void)rt->register_service(0x1000, svc, 1, 0);
 
     for (int i = 0; i < 3; ++i) {
         MessageHeader hdr = make_request(0x1000, 0x0001, 0, static_cast<uint32_t>(i + 1));
@@ -732,7 +732,7 @@ TEST_F(RuntimeTest, DiagnosticCallback_FiredOnError) {
 
 TEST_F(RuntimeTest, SendFailure_IncrementsDroppedMessages) {
     StubService svc;
-    rt->register_service(0x1000, svc, 1, 0);
+    (void)rt->register_service(0x1000, svc, 1, 0);
 
     transport.send_fails = true;
 
@@ -750,7 +750,7 @@ TEST_F(RuntimeTest, OfferService_RequiresRegisteredService) {
 
 TEST_F(RuntimeTest, OfferService_Success_ProcessBroadcasts) {
     StubService svc;
-    rt->register_service(0x1000, svc, 1, 0);
+    (void)rt->register_service(0x1000, svc, 1, 0);
     EXPECT_TRUE(rt->offer_service(0x1000, 10, 0));
 
     rt->process(0); // fires the broadcast
@@ -759,8 +759,8 @@ TEST_F(RuntimeTest, OfferService_Success_ProcessBroadcasts) {
 
 TEST_F(RuntimeTest, StopOffer_NoMoreBroadcasts) {
     StubService svc;
-    rt->register_service(0x1000, svc, 1, 0);
-    rt->offer_service(0x1000, 10, 0);
+    (void)rt->register_service(0x1000, svc, 1, 0);
+    (void)rt->offer_service(0x1000, 10, 0);
 
     rt->process(0); // initial broadcast
     transport.clear();
@@ -774,7 +774,7 @@ TEST_F(RuntimeTest, StopOffer_NoMoreBroadcasts) {
 
 TEST_F(RuntimeTest, UnregisterService_RemovesFromDispatcher) {
     StubService svc;
-    rt->register_service(0x1000, svc, 1, 0);
+    (void)rt->register_service(0x1000, svc, 1, 0);
     EXPECT_TRUE(rt->unregister_service(0x1000));
 
     // Now a request should get UNKNOWN_SERVICE error

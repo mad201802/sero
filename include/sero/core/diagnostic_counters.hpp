@@ -31,7 +31,7 @@ struct DiagnosticCounters {
 
     void increment(DiagnosticCounter c, const uint8_t* header_or_null = nullptr) {
         auto idx = static_cast<std::size_t>(c);
-        ++counters[idx]; // wrapping uint32_t
+        if (counters[idx] < UINT32_MAX) ++counters[idx]; // saturating
         if (callback) {
             callback(c, header_or_null, callback_ctx);
         }
