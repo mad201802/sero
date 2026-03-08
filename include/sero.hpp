@@ -2,6 +2,7 @@
 /// @file sero.hpp
 /// Umbrella header — includes the entire Sero library.
 
+#include "sero/core/log.hpp"
 #include "sero/core/config.hpp"
 #include "sero/core/types.hpp"
 #include "sero/core/message_header.hpp"

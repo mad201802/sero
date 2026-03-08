@@ -7,6 +7,7 @@
 #include <cstdint>
 
 #include "sero/core/types.hpp"
+#include "sero/core/log.hpp"
 #include "sero/service/service.hpp"
 
 namespace sero {
@@ -16,17 +17,29 @@ class MethodDispatcher {
 public:
     MethodDispatcher() = default;
 
+    void set_logger(Logger<Config>* logger) { logger_ = logger; }
+
     /// Register a service. Returns false if table full or duplicate ID.
     bool register_service(const ServiceEntry& entry) {
         // Check for duplicate
         for (std::size_t i = 0; i < count_; ++i) {
             if (services_[i].active && services_[i].service_id == entry.service_id) {
+                if (logger_) logger_->warn(LogCategory::Methods, "svc_duplicate",
+                                            entry.service_id, 0, 0, 0);
                 return false;
             }
         }
-        if (count_ >= Config::MaxServices) return false;
+        if (count_ >= Config::MaxServices) {
+            if (logger_) logger_->warn(LogCategory::Methods, "svc_table_full",
+                                        entry.service_id, 0, 0,
+                                        static_cast<uint32_t>(count_));
+            return false;
+        }
         services_[count_] = entry;
         ++count_;
+        if (logger_) logger_->info(LogCategory::Methods, "svc_registered",
+                                    entry.service_id, 0, 0,
+                                    static_cast<uint32_t>(count_));
         return true;
     }
 
@@ -38,6 +51,9 @@ public:
                 if (i != count_ - 1) services_[i] = services_[count_ - 1];
                 services_[count_ - 1] = ServiceEntry{};
                 --count_;
+                if (logger_) logger_->info(LogCategory::Methods, "svc_unregistered",
+                                            service_id, 0, 0,
+                                            static_cast<uint32_t>(count_));
                 return true;
             }
         }
@@ -51,11 +67,23 @@ public:
                         uint8_t* response, std::size_t& response_length) const
     {
         const ServiceEntry* svc = find(service_id);
-        if (!svc) return ReturnCode::E_UNKNOWN_SERVICE;
-        if (!svc->is_ready_fn(svc->context)) return ReturnCode::E_NOT_READY;
-        return svc->on_request_fn(svc->context, method_id,
+        if (!svc) {
+            if (logger_) logger_->debug(LogCategory::Methods, "dispatch_unknown_svc",
+                                         service_id, method_id, 0, 0);
+            return ReturnCode::E_UNKNOWN_SERVICE;
+        }
+        if (!svc->is_ready_fn(svc->context)) {
+            if (logger_) logger_->debug(LogCategory::Methods, "dispatch_not_ready",
+                                         service_id, method_id, 0, 0);
+            return ReturnCode::E_NOT_READY;
+        }
+        ReturnCode rc = svc->on_request_fn(svc->context, method_id,
                                   payload, payload_length,
                                   response, response_length);
+        if (logger_) logger_->debug(LogCategory::Methods, "dispatch_result",
+                                     service_id, method_id, 0,
+                                     static_cast<uint32_t>(rc));
+        return rc;
     }
 
     /// Look up a service entry (for auth policy checks etc.)
@@ -81,6 +109,7 @@ public:
 private:
     std::array<ServiceEntry, Config::MaxServices> services_{};
     std::size_t count_ = 0;
+    Logger<Config>* logger_ = nullptr;
 };
 
 } // namespace sero

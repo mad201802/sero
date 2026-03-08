@@ -7,6 +7,7 @@
 #include <cstdint>
 
 #include "sero/core/types.hpp"
+#include "sero/core/log.hpp"
 
 namespace sero {
 
@@ -16,6 +17,8 @@ public:
     using Addr = Address<Config>;
 
     EventManager() = default;
+
+    void set_logger(Logger<Config>* logger) { logger_ = logger; }
 
     /// Register an event slot (provider side). Returns false if table full.
     bool register_event(uint16_t service_id, uint16_t event_id) {
@@ -27,13 +30,20 @@ public:
                 return true; // already registered
             }
         }
-        if (event_count_ >= MAX_EVENTS) return false;
+        if (event_count_ >= MAX_EVENTS) {
+            if (logger_) logger_->warn(LogCategory::Events, "event_table_full",
+                                        service_id, event_id, 0,
+                                        static_cast<uint32_t>(event_count_));
+            return false;
+        }
         auto& ev = events_[event_count_];
         ev.service_id  = service_id;
         ev.event_id    = event_id;
         ev.active      = true;
         ev.sub_count   = 0;
         ++event_count_;
+        if (logger_) logger_->info(LogCategory::Events, "event_registered",
+                                    service_id, event_id, 0, 0);
         return true;
     }
 
@@ -61,6 +71,9 @@ public:
 
         // New subscriber
         if (ev->sub_count >= Config::MaxSubscribers) {
+            if (logger_) logger_->warn(LogCategory::Events, "sub_table_full",
+                                        service_id, event_id, client_id,
+                                        static_cast<uint32_t>(ev->sub_count));
             return ReturnCode::E_NOT_OK; // table full
         }
         auto& s = ev->subscribers[ev->sub_count];
@@ -68,6 +81,9 @@ public:
         s.addr      = addr;
         s.expiry_ms = expiry;
         ++ev->sub_count;
+        if (logger_) logger_->info(LogCategory::Events, "subscriber_added",
+                                    service_id, event_id, client_id,
+                                    static_cast<uint32_t>(ev->sub_count));
         return ReturnCode::E_OK;
     }
 
@@ -81,6 +97,9 @@ public:
                 if (i != ev->sub_count - 1) ev->subscribers[i] = ev->subscribers[ev->sub_count - 1];
                 ev->subscribers[ev->sub_count - 1] = Subscriber{};
                 --ev->sub_count;
+                if (logger_) logger_->info(LogCategory::Events, "subscriber_removed",
+                                            service_id, event_id, client_id,
+                                            static_cast<uint32_t>(ev->sub_count));
                 return;
             }
         }
@@ -161,6 +180,7 @@ private:
 
     std::array<EventSlot, MAX_EVENTS> events_{};
     std::size_t event_count_ = 0;
+    Logger<Config>* logger_ = nullptr;
 
     EventSlot* find_event(uint16_t sid, uint16_t eid) {
         for (std::size_t i = 0; i < event_count_; ++i) {

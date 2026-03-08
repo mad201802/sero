@@ -7,6 +7,7 @@
 #include <cstdint>
 
 #include "sero/core/types.hpp"
+#include "sero/core/log.hpp"
 #include "sero/core/message_header.hpp"
 #include "sero/core/diagnostic_counters.hpp"
 #include "sero/core/dtc_store.hpp"
@@ -48,6 +49,8 @@ class DiagnosticsService : public IService<DiagnosticsService<Config>> {
 public:
     DiagnosticsService() = default;
 
+    void set_logger(Logger<Config>* logger) { logger_ = logger; }
+
     /// Wire up the service to the runtime internals.
     void init(DtcStore<Config>* dtcs,
               const DiagnosticCounters* counters,
@@ -68,6 +71,8 @@ public:
                                uint8_t* response,
                                std::size_t& response_length)
     {
+        if (logger_) logger_->debug(LogCategory::Diagnostics, "diag_request",
+                                     DIAG_SERVICE_ID, method_id, 0, 0);
         auto method = static_cast<DiagMethod>(method_id);
         switch (method) {
             case DiagMethod::DIAG_GET_DTCS:
@@ -97,6 +102,7 @@ private:
     const MethodDispatcher<Config>* dispatcher_ = nullptr;
     uint16_t                       client_id_  = 0;
     const uint32_t*                uptime_ptr_ = nullptr;
+    Logger<Config>*                logger_     = nullptr;
 
     // ── GET_DTCS ────────────────────────────────────────────────
 

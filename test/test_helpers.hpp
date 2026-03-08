@@ -36,6 +36,7 @@ struct SmallConfig {
     static constexpr std::size_t MaxTrackedPeers           = 4;
     static constexpr std::size_t HmacKeySize               = 32;
     static constexpr std::size_t MaxDtcs                    = 4;
+    static constexpr sero::LogLevel MinLogLevel              = sero::LogLevel::Off;
 };
 
 using Addr = sero::Address<SmallConfig>;
