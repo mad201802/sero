@@ -9,6 +9,7 @@
 
 #include "sero/core/types.hpp"
 #include "sero/core/message_header.hpp"
+#include "sero/core/log.hpp"
 
 namespace sero {
 
@@ -137,6 +138,7 @@ public:
 
     void set_local_address(const Addr& addr) { local_addr_ = addr; }
     void set_client_id(uint16_t cid) { client_id_ = cid; }
+    void set_logger(Logger<Config>* logger) { logger_ = logger; }
 
     SdCallbacks<Config>& callbacks() { return callbacks_; }
 
@@ -161,6 +163,8 @@ public:
         pe->last_offer_ms = now_ms;
         pe->active        = true;
         pe->needs_broadcast = true; // will be sent in process_offers
+        if (logger_) logger_->info(LogCategory::ServiceDiscovery, "offer_start",
+                                    service_id, 0, client_id_, ttl_seconds);
         return true;
     }
 
@@ -170,6 +174,8 @@ public:
         if (pe) {
             pe->state  = ProviderState::NOT_OFFERED;
             pe->active = false;
+            if (logger_) logger_->info(LogCategory::ServiceDiscovery, "offer_stop",
+                                        service_id, 0, client_id_, 0);
         }
     }
 
@@ -189,6 +195,8 @@ public:
         ce->next_retry_ms   = now_ms; // send immediately
         ce->active          = true;
         ce->ttl_expiry_ms   = 0;
+        if (logger_) logger_->info(LogCategory::ServiceDiscovery, "find_start",
+                                    service_id, 0, client_id_, expected_major);
         return true;
     }
 
@@ -275,6 +283,9 @@ public:
                 if (ce.retry_count > Config::SdFindRetryCount) {
                     // Retries exhausted → NOT_FOUND
                     ce.state = ConsumerState::NOT_FOUND;
+                    if (logger_) logger_->warn(LogCategory::ServiceDiscovery, "find_exhausted",
+                                                ce.service_id, 0, client_id_,
+                                                ce.retry_count);
                     if (callbacks_.on_service_lost) {
                         callbacks_.on_service_lost(ce.service_id,
                                                    callbacks_.service_lost_ctx);
@@ -306,6 +317,8 @@ public:
                 Addr expired_addr = ce.provider_addr;
                 ce.state = ConsumerState::NOT_FOUND;
                 ce.session_valid = false; // allow fresh session on reconnect
+                if (logger_) logger_->warn(LogCategory::ServiceDiscovery, "ttl_expired",
+                                            ce.service_id, 0, client_id_, 0);
                 on_peer_expired(expired_addr);
                 if (callbacks_.on_service_lost) {
                     callbacks_.on_service_lost(ce.service_id,
@@ -409,6 +422,8 @@ public:
 
         if (reboot_detected) {
             // Provider restarted — notify app and mark subscriptions for re-send
+            if (logger_) logger_->warn(LogCategory::ServiceDiscovery, "reboot_detected",
+                                        offered_service_id, 0, client_id_, session_id);
             if (callbacks_.on_service_lost) {
                 callbacks_.on_service_lost(offered_service_id,
                                            callbacks_.service_lost_ctx);
@@ -425,6 +440,8 @@ public:
 
         if (ce->state != ConsumerState::FOUND) {
             ce->state = ConsumerState::FOUND;
+            if (logger_) logger_->info(LogCategory::ServiceDiscovery, "service_found",
+                                        offered_service_id, 0, client_id_, ttl_seconds);
             // Re-send any active subscriptions for this service
             flag_resubscribe(offered_service_id, now_ms);
             if (callbacks_.on_service_found) {
@@ -476,8 +493,14 @@ public:
         if (st && st->active) {
             if (result == ReturnCode::E_OK) {
                 st->granted_ttl = granted_ttl;
+                if (logger_) logger_->info(LogCategory::Events, "sub_ack_ok",
+                                            service_id, event_id, client_id_,
+                                            granted_ttl);
             } else {
                 st->active = false; // §6.1: MUST NOT retry automatically
+                if (logger_) logger_->warn(LogCategory::Events, "sub_ack_fail",
+                                            service_id, event_id, client_id_,
+                                            static_cast<uint32_t>(result));
             }
         }
         if (callbacks_.on_subscription_ack) {
@@ -570,6 +593,7 @@ private:
     Addr       local_addr_{};
     uint16_t   client_id_ = 0;
     SdCallbacks<Config> callbacks_{};
+    Logger<Config>* logger_ = nullptr;
 
     // ── Lookup helpers ──────────────────────────────────────────
 

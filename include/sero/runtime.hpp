@@ -9,6 +9,7 @@
 
 #include "sero/core/config.hpp"
 #include "sero/core/types.hpp"
+#include "sero/core/log.hpp"
 #include "sero/core/message_header.hpp"
 #include "sero/security/crc16.hpp"
 #include "sero/security/e2e_protection.hpp"
@@ -48,6 +49,13 @@ public:
         , client_id_(client_id)
     {
         sd_.set_client_id(client_id);
+        sd_.set_logger(&logger_);
+        e2e_.set_logger(&logger_);
+        authenticator_.set_logger(&logger_);
+        event_manager_.set_logger(&logger_);
+        request_tracker_.set_logger(&logger_);
+        dispatcher_.set_logger(&logger_);
+        diag_service_.set_logger(&logger_);
     }
 
     /// Set the local transport address (needed for SD offers).
@@ -208,8 +216,13 @@ public:
         std::size_t total = build_message(hdr, payload, payload_length, auth, provider);
         if (!transport_.send(provider, tx_buffer_, total)) {
             diag_.increment(DiagnosticCounter::DroppedMessages);
+            logger_.warn(LogCategory::Transport, "fnf_send_fail",
+                         service_id, method_id, client_id_, 0);
             return false;
         }
+        logger_.debug(LogCategory::Dispatch, "fnf_tx",
+                      service_id, method_id, client_id_,
+                      static_cast<uint32_t>(payload_length));
         return true;
     }
 
@@ -261,6 +274,8 @@ public:
                 std::size_t total = build_message(hdr, payload, payload_length, auth, dest);
                 if (!transport_.send(dest, tx_buffer_, total)) {
                     diag_.increment(DiagnosticCounter::DroppedMessages);
+                    logger_.warn(LogCategory::Transport, "notify_send_fail",
+                                 service_id, event_id, 0, 0);
                 }
             });
         return true;
@@ -279,6 +294,17 @@ public:
     }
 
     const DiagnosticCounters& diagnostics() const { return diag_; }
+
+    // ── Logging ──────────────────────────────────────────────────
+
+    /// Set the log callback. The callback receives structured LogEntry data.
+    /// Safe to call at any time. Pass nullptr to disable.
+    void set_log_callback(LogCallback cb, void* ctx) {
+        logger_.set_callback(cb, ctx);
+    }
+
+    /// Read-only access to the logger (for advanced use / testing).
+    const Logger<Config>& logger() const { return logger_; }
 
     // ── Diagnostics Service (§10) ───────────────────────────────
 
@@ -336,6 +362,7 @@ private:
     uint16_t                   client_id_;
     Addr                       local_addr_{};
 
+    Logger<Config>             logger_;
     E2EProtection<Config>      e2e_;
     uint8_t                    sd_seq_  = 0;  ///< Separate sequence counter for SD-only messages.
     MessageAuthenticator<Config> authenticator_;
@@ -371,6 +398,8 @@ private:
         // Step 1: Minimum size check
         if (length < MIN_MESSAGE_SIZE) {
             diag_.increment(DiagnosticCounter::DroppedMessages, nullptr);
+            logger_.warn(LogCategory::Validation, "min_size_fail",
+                         0, 0, 0, static_cast<uint32_t>(length));
             return;
         }
 
@@ -378,6 +407,8 @@ private:
         if (!crc16_verify(data, length)) {
             diag_.increment(DiagnosticCounter::CrcErrors,
                             length >= HEADER_SIZE ? data : nullptr);
+            logger_.error(LogCategory::Validation, "crc_fail",
+                          0, 0, 0, static_cast<uint32_t>(length));
             return;
         }
 
@@ -387,12 +418,18 @@ private:
         // Step 3: Version
         if (hdr.version != PROTOCOL_VERSION) {
             diag_.increment(DiagnosticCounter::VersionMismatches, data);
+            logger_.warn(LogCategory::Validation, "version_mismatch",
+                         hdr.service_id, hdr.method_event_id, hdr.client_id,
+                         hdr.version);
             return;
         }
 
         // Step 4: Payload length
         if (hdr.payload_length > Config::MaxPayloadSize) {
             diag_.increment(DiagnosticCounter::OversizedPayloads, data);
+            logger_.warn(LogCategory::Validation, "oversized_payload",
+                         hdr.service_id, hdr.method_event_id, hdr.client_id,
+                         hdr.payload_length);
             return;
         }
 
@@ -401,12 +438,18 @@ private:
             + (hdr.has_auth() ? HMAC_SIZE : 0) + CRC_SIZE;
         if (length < expected_size) {
             diag_.increment(DiagnosticCounter::DroppedMessages, data);
+            logger_.warn(LogCategory::Validation, "size_mismatch",
+                         hdr.service_id, hdr.method_event_id, hdr.client_id,
+                         static_cast<uint32_t>(expected_size));
             return;
         }
 
         // Step 5: Known message type
         if (!is_valid_message_type(hdr.message_type)) {
             diag_.increment(DiagnosticCounter::UnknownMessageTypes, data);
+            logger_.warn(LogCategory::Validation, "unknown_msg_type",
+                         hdr.service_id, hdr.method_event_id, hdr.client_id,
+                         hdr.message_type);
             return;
         }
 
@@ -415,12 +458,17 @@ private:
         // For SD_SUBSCRIBE_ACK the response also carries method IDs.
         if (!hdr.validate_type_id_consistency()) {
             diag_.increment(DiagnosticCounter::TypeIdMismatches, data);
+            logger_.warn(LogCategory::Validation, "type_id_mismatch",
+                         hdr.service_id, hdr.method_event_id, hdr.client_id,
+                         hdr.message_type);
             return;
         }
 
         // Step 7: Client ID validation
         if (!hdr.validate_client_id()) {
             diag_.increment(DiagnosticCounter::DroppedMessages, data);
+            logger_.warn(LogCategory::Validation, "client_id_invalid",
+                         hdr.service_id, hdr.method_event_id, hdr.client_id, 0);
             return;
         }
 
@@ -436,9 +484,15 @@ private:
             switch (seq_result) {
                 case SeqResult::Duplicate:
                     diag_.increment(DiagnosticCounter::DuplicateMessages, data);
+                    logger_.warn(LogCategory::Validation, "seq_duplicate",
+                                 hdr.service_id, hdr.method_event_id,
+                                 hdr.client_id, hdr.sequence_counter);
                     return;
                 case SeqResult::Stale:
                     diag_.increment(DiagnosticCounter::StaleMessages, data);
+                    logger_.warn(LogCategory::Validation, "seq_stale",
+                                 hdr.service_id, hdr.method_event_id,
+                                 hdr.client_id, hdr.sequence_counter);
                     return;
                 case SeqResult::Accept:
                 case SeqResult::FirstSeen:
@@ -459,6 +513,9 @@ private:
             if (!authenticator_.verify(data, payload, hdr.payload_length,
                                         source, hmac_ptr)) {
                 diag_.increment(DiagnosticCounter::AuthFailures, data);
+                logger_.error(LogCategory::Validation, "auth_fail",
+                              hdr.service_id, hdr.method_event_id,
+                              hdr.client_id, 0);
                 return;
             }
         } else {
@@ -467,12 +524,18 @@ private:
                 const ServiceEntry* se = dispatcher_.find(hdr.service_id);
                 if (se && se->auth_required) {
                     diag_.increment(DiagnosticCounter::AuthFailures, data);
+                    logger_.error(LogCategory::Validation, "auth_required",
+                                  hdr.service_id, hdr.method_event_id,
+                                  hdr.client_id, 0);
                     return;
                 }
             }
         }
 
         // Step 10: Dispatch
+        logger_.debug(LogCategory::Dispatch, "dispatch",
+                      hdr.service_id, hdr.method_event_id, hdr.client_id,
+                      hdr.payload_length);
         dispatch_message(source, hdr, payload, hdr.payload_length, now_ms);
     }
 
@@ -514,6 +577,10 @@ private:
     void handle_request(const Addr& source, const MessageHeader& hdr,
                         const uint8_t* payload, std::size_t payload_length)
     {
+        logger_.info(LogCategory::Dispatch, "request_rx",
+                     hdr.service_id, hdr.method_event_id, hdr.client_id,
+                     hdr.request_id);
+
         std::size_t response_length = Config::MaxPayloadSize;
         ReturnCode rc = dispatcher_.dispatch(
             hdr.service_id, hdr.method_event_id,
@@ -543,8 +610,13 @@ private:
         std::size_t total = build_message(resp_hdr, resp_payload, resp_payload_len,
                                           auth, source);
         if (!transport_.send(source, tx_buffer_, total)) {
-            diag_.increment(DiagnosticCounter::DroppedMessages);
-        }
+            diag_.increment(DiagnosticCounter::DroppedMessages);            logger_.warn(LogCategory::Transport, "response_send_fail",
+                         hdr.service_id, hdr.method_event_id, hdr.client_id,
+                         hdr.request_id);
+        } else {
+            logger_.info(LogCategory::Dispatch, "response_tx",
+                         hdr.service_id, hdr.method_event_id, hdr.client_id,
+                         static_cast<uint32_t>(rc));        }
     }
 
     // ── Handler: REQUEST_NO_RETURN (§5.2) ───────────────────────
@@ -556,9 +628,18 @@ private:
         const ServiceEntry* se = dispatcher_.find(hdr.service_id);
         if (!se) {
             diag_.increment(DiagnosticCounter::DroppedMessages);
+            logger_.debug(LogCategory::Dispatch, "fnf_unknown_svc",
+                          hdr.service_id, hdr.method_event_id, hdr.client_id, 0);
             return;
         }
-        if (!se->is_ready_fn(se->context)) return;
+        if (!se->is_ready_fn(se->context)) {
+            logger_.debug(LogCategory::Dispatch, "fnf_not_ready",
+                          hdr.service_id, hdr.method_event_id, hdr.client_id, 0);
+            return;
+        }
+        logger_.debug(LogCategory::Dispatch, "fnf_rx",
+                      hdr.service_id, hdr.method_event_id, hdr.client_id,
+                      static_cast<uint32_t>(payload_length));
 
         std::size_t dummy_len = 0;
         se->on_request_fn(se->context, hdr.method_event_id,
@@ -572,6 +653,9 @@ private:
     void handle_response(const MessageHeader& hdr,
                          const uint8_t* payload, std::size_t payload_length)
     {
+        logger_.debug(LogCategory::Requests, "response_rx",
+                      hdr.service_id, hdr.method_event_id, hdr.client_id,
+                      hdr.request_id);
         request_tracker_.complete(hdr.request_id,
                                  static_cast<ReturnCode>(hdr.return_code),
                                  payload, payload_length);
@@ -582,6 +666,9 @@ private:
     void handle_error(const MessageHeader& hdr,
                       const uint8_t* payload, std::size_t payload_length)
     {
+        logger_.warn(LogCategory::Requests, "error_rx",
+                     hdr.service_id, hdr.method_event_id, hdr.client_id,
+                     static_cast<uint32_t>(hdr.return_code));
         request_tracker_.complete(hdr.request_id,
                                  static_cast<ReturnCode>(hdr.return_code),
                                  payload, payload_length);
@@ -596,6 +683,9 @@ private:
         const EventHandlerEntry* eh = find_event_handler(hdr.service_id,
                                                           hdr.method_event_id);
         if (eh && eh->on_event_fn) {
+            logger_.debug(LogCategory::Events, "notification_rx",
+                          hdr.service_id, hdr.method_event_id, hdr.client_id,
+                          static_cast<uint32_t>(payload_length));
             eh->on_event_fn(eh->context, hdr.service_id, hdr.method_event_id,
                             payload, payload_length);
         }
@@ -616,6 +706,8 @@ private:
                 if (sd_payload::deserialize_offer<Config>(
                         payload, payload_length, sid, major, minor, ttl,
                         session_id, provider)) {
+                    logger_.debug(LogCategory::ServiceDiscovery, "offer_rx",
+                                  sid, 0, hdr.client_id, ttl);
                     // Check for reboot before handling (to reset E2E state)
                     if (sd_.detect_reboot(sid, session_id)) {
                         e2e_.reset_peer(provider);
@@ -627,6 +719,8 @@ private:
             case SdMethod::SD_FIND_SERVICE: {
                 uint16_t sid;
                 if (sd_payload::deserialize_find(payload, payload_length, sid)) {
+                    logger_.debug(LogCategory::ServiceDiscovery, "find_rx",
+                                  sid, 0, hdr.client_id, 0);
                     // Treat an incoming SD_FIND as a reboot signal for the sender.
                     // A live consumer that hasn't restarted has no reason to
                     // re-issue SD_FIND for a service it already tracks, so clearing
@@ -647,6 +741,8 @@ private:
                 uint16_t sid, eid; uint16_t ttl;
                 if (sd_payload::deserialize_subscribe(
                         payload, payload_length, sid, eid, ttl)) {
+                    logger_.debug(LogCategory::Events, "subscribe_rx",
+                                  sid, eid, hdr.client_id, ttl);
                     handle_subscribe_request(source, hdr, sid, eid, ttl, now_ms);
                 }
                 break;
@@ -655,6 +751,9 @@ private:
                 uint16_t sid, eid; uint16_t granted_ttl;
                 if (sd_payload::deserialize_subscribe(
                         payload, payload_length, sid, eid, granted_ttl)) {
+                    logger_.debug(LogCategory::Events, "subscribe_ack_rx",
+                                  sid, eid, hdr.client_id,
+                                  static_cast<uint32_t>(hdr.return_code));
                     sd_.handle_subscribe_ack(
                         sid, eid,
                         static_cast<ReturnCode>(hdr.return_code),
@@ -666,6 +765,8 @@ private:
                 uint16_t sid, eid; uint16_t ttl;
                 if (sd_payload::deserialize_subscribe(
                         payload, payload_length, sid, eid, ttl)) {
+                    logger_.debug(LogCategory::Events, "unsubscribe_rx",
+                                  sid, eid, hdr.client_id, 0);
                     event_manager_.unsubscribe(sid, eid, hdr.client_id);
                 }
                 break;
@@ -711,6 +812,12 @@ private:
 
         if (!transport_.send(source, tx_buffer_, total)) {
             diag_.increment(DiagnosticCounter::DroppedMessages);
+            logger_.warn(LogCategory::Transport, "sub_ack_send_fail",
+                         service_id, event_id, hdr.client_id, 0);
+        } else {
+            logger_.debug(LogCategory::Events, "subscribe_ack_tx",
+                          service_id, event_id, hdr.client_id,
+                          static_cast<uint32_t>(result));
         }
     }
 
@@ -740,8 +847,13 @@ private:
         if (!transport_.send(target, tx_buffer_, total)) {
             request_tracker_.complete(*rid, ReturnCode::E_NOT_OK, nullptr, 0);
             diag_.increment(DiagnosticCounter::DroppedMessages);
+            logger_.warn(LogCategory::Transport, "request_send_fail",
+                         service_id, method_id, client_id_,
+                         *rid);
             return std::nullopt;
         }
+        logger_.debug(LogCategory::Requests, "request_tx",
+                      service_id, method_id, client_id_, *rid);
         return rid;
     }
 
@@ -814,6 +926,12 @@ private:
         crc16_append(tx_buffer_, sd_len);
         if (!transport_.broadcast(tx_buffer_, sd_len + CRC_SIZE)) {
             diag_.increment(DiagnosticCounter::DroppedMessages);
+            logger_.warn(LogCategory::Transport, "sd_broadcast_fail",
+                         0, 0, client_id_, 0);
+        } else {
+            logger_.trace(LogCategory::ServiceDiscovery, "sd_broadcast_tx",
+                          0, 0, client_id_,
+                          static_cast<uint32_t>(sd_len + CRC_SIZE));
         }
     }
 
@@ -824,6 +942,12 @@ private:
         crc16_append(tx_buffer_, sd_len);
         if (!transport_.send(dest, tx_buffer_, sd_len + CRC_SIZE)) {
             diag_.increment(DiagnosticCounter::DroppedMessages);
+            logger_.warn(LogCategory::Transport, "sd_unicast_fail",
+                         0, 0, client_id_, 0);
+        } else {
+            logger_.trace(LogCategory::ServiceDiscovery, "sd_unicast_tx",
+                          0, 0, client_id_,
+                          static_cast<uint32_t>(sd_len + CRC_SIZE));
         }
     }
 

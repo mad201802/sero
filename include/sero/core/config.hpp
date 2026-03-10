@@ -10,6 +10,8 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "sero/core/log.hpp"
+
 namespace sero {
 
 struct DefaultConfig {
@@ -33,6 +35,7 @@ struct DefaultConfig {
     static constexpr std::size_t MaxTrackedPeers           = 32;
     static constexpr std::size_t HmacKeySize               = 32;
     static constexpr std::size_t MaxDtcs                    = 32;
+    static constexpr LogLevel      MinLogLevel                = LogLevel::Off;
 };
 
 /// Embedded-friendly configuration for resource-constrained MCUs (ESP32, STM32, etc.).
@@ -58,6 +61,7 @@ struct EmbeddedConfig {
     static constexpr std::size_t MaxTrackedPeers           = 8;
     static constexpr std::size_t HmacKeySize               = 32;
     static constexpr std::size_t MaxDtcs                    = 8;
+    static constexpr LogLevel      MinLogLevel                = LogLevel::Off;
 };
 
 } // namespace sero

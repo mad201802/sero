@@ -9,6 +9,7 @@
 #include <optional>
 
 #include "sero/core/types.hpp"
+#include "sero/core/log.hpp"
 
 namespace sero {
 
@@ -21,6 +22,8 @@ template <typename Config>
 class RequestTracker {
 public:
     RequestTracker() = default;
+
+    void set_logger(Logger<Config>* logger) { logger_ = logger; }
 
     /// Allocate a new pending request slot.
     /// Returns the assigned request_id, or std::nullopt if table full.
@@ -56,9 +59,13 @@ public:
                 e.callback       = callback;
                 e.user_ctx       = user_ctx;
                 e.active         = true;
+                if (logger_) logger_->debug(LogCategory::Requests, "req_alloc",
+                                             service_id, method_id, 0, rid);
                 return rid;
             }
         }
+        if (logger_) logger_->warn(LogCategory::Requests, "req_table_full",
+                                    service_id, method_id, 0, 0);
         return std::nullopt; // table full
     }
 
@@ -71,11 +78,17 @@ public:
             if (entries_[i].active && entries_[i].request_id == request_id) {
                 auto cb  = entries_[i].callback;
                 auto ctx = entries_[i].user_ctx;
+                if (logger_) logger_->debug(LogCategory::Requests, "req_complete",
+                                             entries_[i].service_id,
+                                             entries_[i].method_id, 0,
+                                             static_cast<uint32_t>(rc));
                 entries_[i] = PendingEntry{}; // free slot
                 if (cb) cb(rc, payload, payload_length, ctx);
                 return true;
             }
         }
+        if (logger_) logger_->debug(LogCategory::Requests, "req_not_found",
+                                     0, 0, 0, request_id);
         return false;
     }
 
@@ -85,6 +98,10 @@ public:
             if (entries_[i].active && time_after(now_ms, entries_[i].deadline_ms)) {
                 auto cb  = entries_[i].callback;
                 auto ctx = entries_[i].user_ctx;
+                if (logger_) logger_->warn(LogCategory::Requests, "req_timeout",
+                                            entries_[i].service_id,
+                                            entries_[i].method_id, 0,
+                                            entries_[i].request_id);
                 entries_[i] = PendingEntry{};
                 if (cb) cb(ReturnCode::E_TIMEOUT, nullptr, 0, ctx);
             }
@@ -110,6 +127,7 @@ private:
 
     std::array<PendingEntry, Config::MaxPendingRequests> entries_{};
     uint32_t next_request_id_ = 1; // monotonically incrementing, wrapping
+    Logger<Config>* logger_ = nullptr;
 
     static bool time_after(uint32_t now, uint32_t target) {
         return static_cast<int32_t>(now - target) > 0;

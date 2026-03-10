@@ -16,6 +16,7 @@ set(TEST_SOURCES
     test_service_discovery.cpp
     test_service_event_handler.cpp
     test_runtime.cpp
+    test_logging.cpp
 )
 
 add_executable(sero_tests ${TEST_SOURCES})

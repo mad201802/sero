@@ -7,6 +7,7 @@
 #include <cstdint>
 
 #include "sero/core/types.hpp"
+#include "sero/core/log.hpp"
 
 namespace sero {
 
@@ -26,6 +27,8 @@ public:
 
     E2EProtection() = default;
 
+    void set_logger(Logger<Config>* logger) { logger_ = logger; }
+
     /// Get the next outgoing sequence number and increment.
     uint8_t next_sequence() {
         uint8_t seq = tx_seq_;
@@ -42,6 +45,8 @@ public:
                 if (i != peer_count_ - 1) peers_[i] = peers_[peer_count_ - 1];
                 peers_[peer_count_ - 1] = PeerEntry{};
                 --peer_count_;
+                if (logger_) logger_->debug(LogCategory::E2E, "peer_reset",
+                                             0, 0, 0, 0);
                 return;
             }
         }
@@ -54,13 +59,19 @@ public:
             if (peers_[i].address == source) {
                 uint8_t delta = static_cast<uint8_t>(received_seq - peers_[i].last_seen);
                 if (delta == 0) {
+                    if (logger_) logger_->warn(LogCategory::E2E, "seq_duplicate",
+                                                0, 0, 0, received_seq);
                     return SeqResult::Duplicate;
                 }
                 if (delta <= Config::SeqCounterAcceptWindow) {
                     peers_[i].last_seen = received_seq;
+                    if (logger_) logger_->trace(LogCategory::E2E, "seq_accept",
+                                                 0, 0, 0, received_seq);
                     return SeqResult::Accept;
                 }
                 // delta > window → stale
+                if (logger_) logger_->warn(LogCategory::E2E, "seq_stale",
+                                            0, 0, 0, received_seq);
                 return SeqResult::Stale;
             }
         }
@@ -70,10 +81,14 @@ public:
             peers_[peer_count_].address   = source;
             peers_[peer_count_].last_seen = received_seq;
             ++peer_count_;
+            if (logger_) logger_->debug(LogCategory::E2E, "seq_first_seen",
+                                         0, 0, 0, received_seq);
             return SeqResult::FirstSeen;
         }
 
         // Table full — accept without validation
+        if (logger_) logger_->warn(LogCategory::E2E, "seq_table_full",
+                                    0, 0, 0, received_seq);
         return SeqResult::TableFull;
     }
 
@@ -86,6 +101,7 @@ private:
     std::array<PeerEntry, Config::MaxTrackedPeers> peers_{};
     std::size_t peer_count_ = 0;
     uint8_t     tx_seq_     = 0;
+    Logger<Config>* logger_ = nullptr;
 };
 
 } // namespace sero

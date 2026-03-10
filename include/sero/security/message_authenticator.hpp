@@ -8,6 +8,7 @@
 #include <cstring>
 
 #include "sero/core/types.hpp"
+#include "sero/core/log.hpp"
 #include "sero/security/hmac.hpp"
 #include "sero/core/message_header.hpp"
 
@@ -20,12 +21,16 @@ public:
 
     MessageAuthenticator() = default;
 
+    void set_logger(Logger<Config>* logger) { logger_ = logger; }
+
     /// Register or update HMAC key for a peer address.
     bool set_key(const Addr& peer, const uint8_t* key) {
         // Update existing entry
         for (std::size_t i = 0; i < key_count_; ++i) {
             if (keys_[i].address == peer) {
                 std::memcpy(keys_[i].key.data(), key, Config::HmacKeySize);
+                if (logger_) logger_->info(LogCategory::Auth, "key_updated",
+                                            0, 0, 0, 0);
                 return true;
             }
         }
@@ -34,8 +39,14 @@ public:
             keys_[key_count_].address = peer;
             std::memcpy(keys_[key_count_].key.data(), key, Config::HmacKeySize);
             ++key_count_;
+            if (logger_) logger_->info(LogCategory::Auth, "key_added",
+                                        0, 0, 0,
+                                        static_cast<uint32_t>(key_count_));
             return true;
         }
+        if (logger_) logger_->warn(LogCategory::Auth, "key_table_full",
+                                    0, 0, 0,
+                                    static_cast<uint32_t>(key_count_));
         return false; // table full
     }
 
@@ -69,9 +80,14 @@ public:
     {
         uint8_t computed[16];
         if (!compute(header_20, payload, payload_len, peer, computed)) {
+            if (logger_) logger_->debug(LogCategory::Auth, "verify_no_key",
+                                         0, 0, 0, 0);
             return false;
         }
-        return hmac_equal(computed, received_hmac);
+        bool ok = hmac_equal(computed, received_hmac);
+        if (!ok && logger_) logger_->warn(LogCategory::Auth, "verify_mismatch",
+                                           0, 0, 0, 0);
+        return ok;
     }
 
     bool has_key(const Addr& peer) const {
@@ -86,6 +102,7 @@ private:
 
     std::array<KeyEntry, Config::MaxTrackedPeers> keys_{};
     std::size_t key_count_ = 0;
+    Logger<Config>* logger_ = nullptr;
 
     const KeyEntry* find_key(const Addr& peer) const {
         for (std::size_t i = 0; i < key_count_; ++i) {
