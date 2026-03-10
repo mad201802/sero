@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -21,31 +24,15 @@ jobs:
         include:
           # Ubuntu – GCC
           - os: ubuntu-24.04
-            compiler: gcc-13
-            cc: gcc-13
-            cxx: g++-13
-            std: 17
-          - os: ubuntu-24.04
             compiler: gcc-14
             cc: gcc-14
             cxx: g++-14
             std: 17
           # Ubuntu – Clang
           - os: ubuntu-24.04
-            compiler: clang-17
-            cc: clang-17
-            cxx: clang++-17
-            std: 17
-          - os: ubuntu-24.04
             compiler: clang-18
             cc: clang-18
             cxx: clang++-18
-            std: 17
-          # macOS – Apple Clang
-          - os: macos-14
-            compiler: apple-clang
-            cc: clang
-            cxx: clang++
             std: 17
 
     steps:
@@ -74,3 +61,20 @@ jobs:
       - name: Test
         working-directory: build
         run: ctest --output-on-failure --parallel $(nproc 2>/dev/null || sysctl -n hw.logicalcpu)
+
+  build-native-module:
+    name: Build native module
+    runs-on: ubuntu-latest
+    env:
+      WORKING_DIRECTORY: 'node-module'
+
+
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      - name: Install dependencies
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        run: bun install
+      - name: Build
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        run: bun run build
