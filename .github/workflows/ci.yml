@@ -72,6 +72,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2
+      - name: Copy sero headers into package
+        run: cp -r include ${{ env.WORKING_DIRECTORY }}/include
       - name: Install dependencies
         working-directory: ${{ env.WORKING_DIRECTORY }}
         run: bun install

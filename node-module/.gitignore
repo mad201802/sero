@@ -3,6 +3,9 @@ node_modules
 
 # output
 out
+
+# headers copied from sero/include at publish time
+include
 build
 dist
 *.tgz

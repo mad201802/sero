@@ -21,6 +21,15 @@
   "peerDependencies": {
     "typescript": "^5"
   },
+  "files": [
+    "binding.gyp",
+    "include",
+    "src",
+    "index.js",
+    "index.ts",
+    "tsconfig.json",
+    "*.node"
+  ],
   "dependencies": {
     "node-addon-api": "^8.6.0"
   }

@@ -111,6 +111,8 @@ jobs:
             registries: |
                 https://registry.npmjs.org/
                 @asl-gokart:${{ env.REGISTRY_URL }}
+      - name: Copy sero headers into package
+        run: cp -r include ${{ env.WORKING_DIRECTORY }}/include
       - name: Install dependencies
         working-directory: ${{ env.WORKING_DIRECTORY }}
         run: bun install
