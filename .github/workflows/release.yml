@@ -95,44 +95,79 @@ jobs:
           draft: false
           prerelease: ${{ contains(steps.version.outputs.VERSION, '-') }}
 
-  build-and-publish-native-module:
-    name: Build and Publish Native Module
-    runs-on: ubuntu-latest
+  build-native-module:
+    name: Build Native Module (${{ matrix.artifact-suffix }})
+    runs-on: ${{ matrix.os }}
     needs:
       - build-and-release
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            artifact-suffix: linux-x64
+          - os: ubuntu-24.04-arm
+            artifact-suffix: linux-arm64
     env:
-      REGISTRY_URL: ${{ secrets.REGISTRY_URL }}
       WORKING_DIRECTORY: 'node-module'
       APP_NAME: 'sero-node'
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
-        with:
-            registries: |
-                https://registry.npmjs.org/
-                @asl-gokart:${{ env.REGISTRY_URL }}
       - name: Copy sero headers into package
         run: cp -r include ${{ env.WORKING_DIRECTORY }}/include
       - name: Install dependencies
         working-directory: ${{ env.WORKING_DIRECTORY }}
         run: bun install
-      - name: Build
+      - name: Build native module
         working-directory: ${{ env.WORKING_DIRECTORY }}
-        run: bun run build
+        run: bun run build:native
       - name: Rename artifact
         working-directory: ${{ env.WORKING_DIRECTORY }}
-        run: |
-          mv ./build/Release/${{ env.APP_NAME }}.node ./${{ env.APP_NAME }}-linux-x64.node
+        run: mv ./build/Release/${{ env.APP_NAME }}.node ./${{ env.APP_NAME }}-${{ matrix.artifact-suffix }}.node
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.APP_NAME }}-linux-x64
-          path: |
-            ${{ env.WORKING_DIRECTORY }}/${{ env.APP_NAME }}-linux-x64.node
+          name: ${{ env.APP_NAME }}-${{ matrix.artifact-suffix }}
+          path: ${{ env.WORKING_DIRECTORY }}/${{ env.APP_NAME }}-${{ matrix.artifact-suffix }}.node
           if-no-files-found: error
+
+  publish-native-module:
+    name: Publish Native Module
+    runs-on: ubuntu-24.04
+    needs:
+      - build-native-module
+    env:
+      REGISTRY_URL: ${{ secrets.REGISTRY_URL }}
+      WORKING_DIRECTORY: 'node-module'
+      APP_NAME: 'sero-node'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          registries: |
+            https://registry.npmjs.org/
+            @asl-gokart:${{ env.REGISTRY_URL }}
+      - name: Copy sero headers into package
+        run: cp -r include ${{ env.WORKING_DIRECTORY }}/include
+      - name: Install dependencies
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        run: bun install
+      - name: Build TypeScript bundle
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        run: bun run build:ts
+      - name: Download linux-x64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.APP_NAME }}-linux-x64
+          path: ${{ env.WORKING_DIRECTORY }}
+      - name: Download linux-arm64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.APP_NAME }}-linux-arm64
+          path: ${{ env.WORKING_DIRECTORY }}
       - name: Publish to registry
         working-directory: ${{ env.WORKING_DIRECTORY }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_CONFIG_TOKEN: ${{ secrets.NPM_REGISTRY_AUTH_TOKEN }}  
+          NPM_CONFIG_TOKEN: ${{ secrets.NPM_REGISTRY_AUTH_TOKEN }}
         run: bun publish --registry ${{ env.REGISTRY_URL }} --access public
