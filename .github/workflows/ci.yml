@@ -74,3 +74,20 @@ jobs:
       - name: Test
         working-directory: build
         run: ctest --output-on-failure --parallel $(nproc 2>/dev/null || sysctl -n hw.logicalcpu)
+
+  build-native-module:
+    name: Build native module
+    runs-on: ubuntu-latest
+    env:
+      WORKING_DIRECTORY: 'node-module'
+
+
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      - name: Install dependencies
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        run: bun install
+      - name: Build
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        run: bun run build

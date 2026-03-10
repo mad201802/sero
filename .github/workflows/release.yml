@@ -94,3 +94,43 @@ jobs:
             sero-${{ steps.version.outputs.VERSION }}.zip
           draft: false
           prerelease: ${{ contains(steps.version.outputs.VERSION, '-') }}
+
+  build-and-publish-native-module:
+    name: Build and Publish Native Module
+    runs-on: ubuntu-latest
+    needs:
+      - build-and-release
+    env:
+      REGISTRY_URL: ${{ secrets.REGISTRY_URL }}
+      WORKING_DIRECTORY: 'node-module'
+      APP_NAME: 'sero-node'
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+            registries: |
+                https://registry.npmjs.org/
+                @asl-gokart:${{ env.REGISTRY_URL }}
+      - name: Install dependencies
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        run: bun install
+      - name: Build
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        run: bun run build
+      - name: Rename artifact
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        run: |
+          mv ./build/Release/${{ env.APP_NAME }}.node ./${{ env.APP_NAME }}-linux-x64.node
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APP_NAME }}-linux-x64
+          path: |
+            ${{ env.WORKING_DIRECTORY }}/${{ env.APP_NAME }}-linux-x64.node
+          if-no-files-found: error
+      - name: Publish to registry
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_CONFIG_TOKEN: ${{ secrets.NPM_REGISTRY_AUTH_TOKEN }}  
+        run: bun publish --registry ${{ env.REGISTRY_URL }} --access public
