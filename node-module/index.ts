@@ -25,7 +25,17 @@
 
 // ── Load the native addon ───────────────────────────────────────
 
-const bindings: NativeModule = require("./build/Release/sero-node.node");
+function loadNativeBinding(): NativeModule {
+  const prebuilt = `./sero-node-${process.platform}-${process.arch}.node`;
+  try {
+    return require(prebuilt);
+  } catch {
+    // Fallback for local development (after running `bun run build:native`)
+    return require("./build/Release/sero-node.node");
+  }
+}
+
+const bindings: NativeModule = loadNativeBinding();
 
 // ── Types ───────────────────────────────────────────────────────
 

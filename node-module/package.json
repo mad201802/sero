@@ -1,6 +1,6 @@
 {
   "name": "@asl-gokart/sero-node",
-  "version": "0.2.0",
+  "version": "0.2.1",
 
   "description": "sero Node.js bindings",
   "main": "index.js",
@@ -22,9 +22,6 @@
     "typescript": "^5"
   },
   "files": [
-    "binding.gyp",
-    "include",
-    "src",
     "index.js",
     "index.ts",
     "tsconfig.json",
