@@ -16,6 +16,7 @@
   },
   "devDependencies": {
     "@types/bun": "latest",
+    "node-addon-api": "^8.6.0",
     "node-gyp": "^12.2.0"
   },
   "peerDependencies": {
@@ -26,8 +27,5 @@
     "index.ts",
     "tsconfig.json",
     "*.node"
-  ],
-  "dependencies": {
-    "node-addon-api": "^8.6.0"
-  }
+  ]
 }

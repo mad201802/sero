@@ -97,30 +97,46 @@ jobs:
 
   build-native-module:
     name: Build Native Module (${{ matrix.artifact-suffix }})
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-24.04
     needs:
       - build-and-release
     strategy:
       matrix:
         include:
-          - os: ubuntu-24.04
-            artifact-suffix: linux-x64
-          - os: ubuntu-24.04-arm
-            artifact-suffix: linux-arm64
+          - artifact-suffix: linux-x64
+            arch: x64
+          - artifact-suffix: linux-arm64
+            arch: arm64
     env:
       WORKING_DIRECTORY: 'node-module'
       APP_NAME: 'sero-node'
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
+      - name: Install cross-compilation toolchain
+        if: matrix.arch == 'arm64'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
       - name: Copy sero headers into package
         run: cp -r include ${{ env.WORKING_DIRECTORY }}/include
       - name: Install dependencies
         working-directory: ${{ env.WORKING_DIRECTORY }}
         run: bun install
       - name: Build native module
+        if: matrix.arch != 'arm64'
         working-directory: ${{ env.WORKING_DIRECTORY }}
-        run: bun run build:native
+        run: bunx node-gyp rebuild
+      - name: Cross-compile native module (arm64)
+        if: matrix.arch == 'arm64'
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        env:
+          CC: aarch64-linux-gnu-gcc
+          CXX: aarch64-linux-gnu-g++
+        run: bunx node-gyp rebuild --arch=arm64
+      - name: Verify binary architecture
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        run: file ./build/Release/${{ env.APP_NAME }}.node
       - name: Rename artifact
         working-directory: ${{ env.WORKING_DIRECTORY }}
         run: mv ./build/Release/${{ env.APP_NAME }}.node ./${{ env.APP_NAME }}-${{ matrix.artifact-suffix }}.node
