@@ -442,6 +442,46 @@ TEST(ServiceDiscovery_UnsubscribeEvent, NotSubscribed_ReturnsFalse) {
     EXPECT_FALSE(sd.unsubscribe_event(0x1000, 0x8001));
 }
 
+// ── Reconnect after retry exhaustion ───────────────────────────
+
+/// Regression test: if ACK retries are exhausted while the provider is away
+/// (inactive ≈ 30 s gap), a fresh SD_OFFER from the same service must
+/// reactivate the subscription and trigger a new SD_SUBSCRIBE_EVENT send.
+TEST(ServiceDiscovery_SubscribeEvent, RetryExhausted_ReactivatesOnReconnect) {
+    SD sd;
+    sd.set_client_id(0x0001);
+    SdCallbackState cb_state;
+    setup_callbacks(sd, cb_state);
+
+    sd.find(0x1000, 1, 0);
+    Addr provider = make_addr(42);
+    sd.handle_offer(0x1000, 1, 30, 0x0001, provider, 0);
+    sd.subscribe_event(0x1000, 0x8001, 30, 0);
+
+    // Exhaust all retries without receiving any ACK.
+    // Retry fires at t = SubscriptionTtlSeconds, 2×, 3× (3rd = exhaustion).
+    constexpr uint32_t ttl_ms = static_cast<uint32_t>(SmallConfig::SubscriptionTtlSeconds) * 1000u;
+    UnicastCapture uc;
+    uint32_t t = 0;
+    for (int retry = 0; retry <= 3; ++retry) {
+        t += ttl_ms;
+        sd.process_subscription_renewals(t, uc.fn());
+    }
+    // Subscription should now be inactive (retries exhausted).
+    uc.count = 0;
+    sd.process_subscription_renewals(t + ttl_ms, uc.fn());
+    EXPECT_EQ(uc.count, 0) << "No send expected while subscription is inactive";
+
+    // Provider comes back — new session_id simulates reboot / reconnect.
+    UnicastCapture resubscribe_uc;
+    t += ttl_ms;
+    sd.handle_offer(0x1000, 1, 30, 0x0002, provider, t);
+
+    // The next process cycle must send SD_SUBSCRIBE_EVENT.
+    sd.process_subscription_renewals(t, resubscribe_uc.fn());
+    EXPECT_GE(resubscribe_uc.count, 1) << "Expected SD_SUBSCRIBE_EVENT after provider reconnect";
+}
+
 // ── Provider address change ─────────────────────────────────────
 
 TEST(ServiceDiscovery_HandleOffer, ProviderAddressChange_RenotifiesFound) {

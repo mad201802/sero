@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.14)
 project(sero
-    VERSION 0.2.1
+    VERSION 0.2.2
     DESCRIPTION "Sero: Embedded-first realtime service-oriented communication"
     LANGUAGES CXX
 )

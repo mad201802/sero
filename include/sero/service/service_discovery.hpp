@@ -216,6 +216,7 @@ public:
         st->requested_ttl   = ttl_seconds;
         st->granted_ttl     = 0;
         st->active          = true;
+        st->app_registered  = true;
         st->needs_send      = true;
         st->last_sent_ms    = now_ms;
         return true;
@@ -225,6 +226,7 @@ public:
     bool unsubscribe_event(uint16_t service_id, uint16_t event_id) {
         SubTracker* st = find_sub_tracker(service_id, event_id);
         if (!st) return false;
+        st->app_registered    = false; // app no longer wants this — never reactivate on reconnect
         st->needs_unsubscribe = true;
         return true;
     }
@@ -570,15 +572,16 @@ private:
     };
 
     struct SubTracker {
-        uint16_t service_id       = 0;
-        uint16_t event_id         = 0;
-        uint16_t requested_ttl    = 0;
-        uint16_t granted_ttl      = 0;
-        bool     active           = false;
-        bool     needs_send       = false;
+        uint16_t service_id        = 0;
+        uint16_t event_id          = 0;
+        uint16_t requested_ttl     = 0;
+        uint16_t granted_ttl       = 0;
+        bool     active            = false;
+        bool     app_registered    = false; ///< True while the app wants this subscription.
+        bool     needs_send        = false;
         bool     needs_unsubscribe = false;
-        uint32_t last_sent_ms     = 0;
-        uint8_t  ack_retry_count  = 0;  ///< Retries when no ACK received.
+        uint32_t last_sent_ms      = 0;
+        uint8_t  ack_retry_count   = 0;  ///< Retries when no ACK received.
     };
 
     std::array<ProviderEntry, Config::MaxServices>      providers_{};
@@ -661,14 +664,17 @@ private:
 
     // ── Resubscription on reboot detection (§4.7) ────────────────
 
-    /// Flag all active subscriptions for a service as needing re-send.
+    /// Flag all app-registered subscriptions for a service as needing re-send.
+    /// Revives trackers whose retries were exhausted while the provider was away.
     void flag_resubscribe(uint16_t service_id, uint32_t now_ms) {
         for (std::size_t i = 0; i < sub_tracker_count_; ++i) {
-            if (sub_trackers_[i].active &&
+            if (sub_trackers_[i].app_registered &&
                 sub_trackers_[i].service_id == service_id) {
-                sub_trackers_[i].needs_send = true;
-                sub_trackers_[i].granted_ttl = 0;
-                sub_trackers_[i].last_sent_ms = now_ms;
+                sub_trackers_[i].active          = true;
+                sub_trackers_[i].ack_retry_count = 0;
+                sub_trackers_[i].needs_send      = true;
+                sub_trackers_[i].granted_ttl     = 0;
+                sub_trackers_[i].last_sent_ms    = now_ms;
             }
         }
     }
