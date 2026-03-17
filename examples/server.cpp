@@ -83,7 +83,7 @@ private:
 
 int main() {
     example::UdpTransport transport;
-    if (!transport.init("127.0.0.1", SERVER_PORT)) return 1;
+    if (!transport.init("192.168.1.132", SERVER_PORT)) return 1;
 
     Runtime rt(transport, MY_CLIENT_ID);
     rt.set_local_address(transport.local_addr());
