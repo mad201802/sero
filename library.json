@@ -1,6 +1,6 @@
 {
   "name": "sero",
-  "version": "0.1.0",
+  "version": "0.2.3",
   "description": "Embedded-first, realtime-ready service-oriented communication for C++17",
   "keywords": "c++17, communication, service-discovery",
   "repository":
