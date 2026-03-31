@@ -801,7 +801,7 @@ private:
         ack_hdr.service_id       = SD_SERVICE_ID;
         ack_hdr.method_event_id  = static_cast<uint16_t>(SdMethod::SD_SUBSCRIBE_ACK);
         ack_hdr.client_id        = client_id_;
-        ack_hdr.sequence_counter = e2e_.next_sequence();
+        ack_hdr.sequence_counter = sd_seq_++;
         ack_hdr.request_id       = 0;
         ack_hdr.payload_length   = SD_SUBSCRIBE_PAYLOAD_SIZE;
         ack_hdr.serialize(tx_buffer_);
